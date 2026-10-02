@@ -31,7 +31,15 @@ function toRegex(pattern: string): RegExp {
         } else re += '.*';
       } else re += '[^/]*';
     } else if (c === '?') re += '[^/]';
-    else re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+    else if (c === '[') {
+      // character class such as [Ll], [0-9] or [!x]
+      const close = p.indexOf(']', i + 2);
+      if (close > 0) {
+        const cls = p.slice(i + 1, close);
+        re += `[${cls.startsWith('!') ? '^' + cls.slice(1) : cls}]`;
+        i = close;
+      } else re += '\\[';
+    } else re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
   }
   return new RegExp(`^${anchored ? '' : '(?:.*/)?'}${re}$`);
 }

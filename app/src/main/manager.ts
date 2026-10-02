@@ -10,9 +10,10 @@ import {
   approveMember as coreApprove, removeMember as coreRemove, setRole as coreSetRole, memberSafetyNumber,
   heartbeat, clearPresence, listPresence, listLocks, acquireLock, releaseLock, addComment, listComments,
   generateIdentity, b64, fromB64, hex, fromHex, readRepoMeta, type Backend, type Identity, type Author,
+  IGNORE_PRESETS, appliedPresets, setPreset, addPattern, detectPresets, DEFAULT_IGNORE,
 } from '@vd/core';
 import type {
-  BranchDTO, ChangeDTO, CommitDTO, Events, FileDiff, LockDTO, MemberDTO, Profile, RepoSummary,
+  BranchDTO, ChangeDTO, CommitDTO, Events, FileDiff, IgnoreInfo, IgnorePresetDTO, LockDTO, MemberDTO, Profile, RepoSummary,
   Role, StorageStats, SyncState,
 } from '../shared/api';
 import { getSecret, setSecret, deleteSecret } from './keystore';
@@ -178,10 +179,15 @@ export class Manager {
     return out;
   }
 
-  async createRepo(a: { dir: string; name: string; level?: 'fast' | 'balanced' | 'max' }) {
+  async createRepo(a: { dir: string; name: string; level?: 'fast' | 'balanced' | 'max'; ignore?: string[] }) {
     await mkdir(a.dir, { recursive: true });
     const { repo, repoKey } = await Repository.init(a.dir, { name: a.name, user: this.me(), level: a.level });
     this.saveKeys(repo.config.repoId, new Map([[1, repoKey]]));
+    if (a.ignore?.length) {
+      let text = await this.readIgnoreText(repo.dir);
+      for (const id of a.ignore) text = setPreset(text, id, true);
+      await writeFile(join(repo.dir, '.vdignore'), text);
+    }
     return this.register(repo);
   }
 
@@ -476,6 +482,45 @@ export class Manager {
 
   async revealInFolder(id: string, path: string) {
     shell.showItemInFolder(join((await this.repo(id)).dir, ...path.split('/')));
+  }
+
+  // ---- ignore rules ----------------------------------------------------------
+
+  private async readIgnoreText(dir: string) {
+    try {
+      return await readFile(join(dir, '.vdignore'), 'utf8');
+    } catch {
+      return DEFAULT_IGNORE;
+    }
+  }
+
+  ignorePresets(): IgnorePresetDTO[] {
+    return IGNORE_PRESETS.map((p) => ({ id: p.id, name: p.name, description: p.description }));
+  }
+
+  ignoreDetect(dir: string) {
+    return detectPresets(dir);
+  }
+
+  async ignoreRead(id: string): Promise<IgnoreInfo> {
+    const text = await this.readIgnoreText((await this.repo(id)).dir);
+    return { text, applied: appliedPresets(text) };
+  }
+
+  ignoreEdit(text: string, presetId: string, on: boolean): IgnoreInfo {
+    const next = setPreset(text, presetId, on);
+    return { text: next, applied: appliedPresets(next) };
+  }
+
+  async ignoreWrite(id: string, text: string) {
+    await writeFile(join((await this.repo(id)).dir, '.vdignore'), text);
+    this.emit('repo:changed', { repoId: id });
+  }
+
+  async ignoreAdd(id: string, pattern: string) {
+    const dir = (await this.repo(id)).dir;
+    await writeFile(join(dir, '.vdignore'), addPattern(await this.readIgnoreText(dir), pattern));
+    this.emit('repo:changed', { repoId: id });
   }
 
   // ---- branches --------------------------------------------------------------

@@ -28,6 +28,7 @@ export function Toolbar() {
             ))}
             {s.repos.length === 0 && <div className="muted" style={{ padding: '6px 9px' }}>No repositories yet</div>}
             <div className="menu-sep" />
+            {repo && <button className="menu-item" onClick={() => { close(); s.openDialog({ t: 'ignore' }); }}><Icon n="eye" s={15} />Ignore files…</button>}
             <button className="menu-item" onClick={() => { close(); s.openDialog({ t: 'newRepo' }); }}><Icon n="plus" s={15} />New repository…</button>
             <button className="menu-item" onClick={() => { close(); s.openDialog({ t: 'clone' }); }}><Icon n="download" s={15} />Clone or join…</button>
           </>

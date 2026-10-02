@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { MemberDTO, Role, StorageStats } from '../../../shared/api';
+import type { IgnorePresetDTO, MemberDTO, Role, StorageStats } from '../../../shared/api';
 import { useStore } from '../store';
 import { Avatar, Icon, Modal, fmtBytes } from '../ui';
 import { DEFAULT_THEME, PRESETS, loadWallpaper } from '../theme';
@@ -16,6 +16,7 @@ export function Dialogs() {
     case 'publish': return <Publish onClose={close} />;
     case 'newBranch': return <NewBranch onClose={close} />;
     case 'settings': return <Settings onClose={close} />;
+    case 'ignore': return <IgnoreDialog onClose={close} />;
     case 'conflict': return <Conflict onClose={close} {...d} />;
     case 'confirm': return <Confirm onClose={close} {...d} />;
   }
@@ -50,6 +51,15 @@ function NewRepo({ onClose }: { onClose: () => void }) {
   const [level, setLevel] = useState<'fast' | 'balanced' | 'max'>('balanced');
   const [mode, setMode] = useState<'new' | 'existing'>('new');
   const [busy, setBusy] = useState(false);
+  const [presets, setPresets] = useState<IgnorePresetDTO[]>([]);
+  const [chosen, setChosen] = useState<Set<string>>(new Set(['os']));
+  const [detected, setDetected] = useState<string[]>([]);
+  useEffect(() => { void window.vd.ignorePresets().then(setPresets); }, []);
+  // for an existing project, look at what's in the folder and pre-select matching presets
+  useEffect(() => {
+    if (mode !== 'existing' || !parent) { setDetected([]); return; }
+    void window.vd.ignoreDetect(parent).then((d) => { setDetected(d); setChosen(new Set(d)); });
+  }, [mode, parent]);
   const dir = mode === 'new' ? (parent ? `${parent.replace(/[\\/]$/, '')}${parent.includes('\\') ? '\\' : '/'}${slug(name)}` : '') : parent;
   const fname = mode === 'existing' ? parent.split(/[\\/]/).filter(Boolean).pop() ?? '' : name;
 
@@ -59,7 +69,7 @@ function NewRepo({ onClose }: { onClose: () => void }) {
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn primary" disabled={busy || !dir || !(mode === 'existing' || name.trim())} onClick={async () => {
           setBusy(true);
-          const r = await s.guard(null, () => window.vd.createRepo({ dir, name: mode === 'existing' ? fname : name.trim(), level }));
+          const r = await s.guard(null, () => window.vd.createRepo({ dir, name: mode === 'existing' ? fname : name.trim(), level, ignore: [...chosen] }));
           if (r) { await s.reloadRepos(); await s.selectRepo(r.id); onClose(); } else setBusy(false);
         }}>Create repository</button>
       </>
@@ -85,6 +95,11 @@ function NewRepo({ onClose }: { onClose: () => void }) {
           {(['fast', 'balanced', 'max'] as const).map((l) => <button key={l} className={level === l ? 'on' : ''} onClick={() => setLevel(l)}>{l[0]!.toUpperCase() + l.slice(1)}</button>)}
         </div>
         <div className="faint" style={{ marginTop: 6 }}>{{ fast: 'Quickest commits, larger repository.', balanced: 'Good size savings with quick commits.', max: 'Smallest possible. Best when Drive space is tight.' }[level]}</div>
+      </div>
+      <div>
+        <label className="label">Ignore files {mode === 'existing' && detected.length > 1 && <span className="badge green" style={{ marginLeft: 6 }}>detected from your folder</span>}</label>
+        <PresetChips presets={presets} on={chosen} detected={detected} onToggle={(id) => setChosen((c) => { const n = new Set(c); n.has(id) ? n.delete(id) : n.add(id); return n; })} />
+        <div className="faint" style={{ marginTop: 6 }}>Skips things that shouldn't be versioned, like caches and build output. You can change this any time.</div>
       </div>
       <div className="row muted"><Icon n="shield" s={15} /> Everything is encrypted on this device before it's stored.</div>
     </Modal>
@@ -510,9 +525,74 @@ function Settings({ onClose }: { onClose: () => void }) {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div className="menu-head" style={{ padding: 0 }}>Interface</div>
+        <div className="row" style={{ justifyContent: 'space-between' }}>
+          <div><div style={{ fontWeight: 550 }}>Floating layout</div><div className="faint" style={{ fontSize: 12 }}>Panels float as cards with no bar behind the toolbar</div></div>
+          <div className="seg">
+            <button className={theme.floating ? 'on' : ''} onClick={() => setTheme({ floating: true })}>On</button>
+            <button className={!theme.floating ? 'on' : ''} onClick={() => setTheme({ floating: false })}>Off</button>
+          </div>
+        </div>
         <Slider label="Interface size" value={theme.scale} min={0.85} max={1.25} step={0.05} onChange={(scale) => setTheme({ scale })} format={(v) => `${Math.round(v * 100)}%`} />
         <Slider label="Code size" value={theme.codeSize} min={11} max={17} step={0.5} onChange={(codeSize) => setTheme({ codeSize })} format={(v) => `${v}px`} />
       </div>
+    </Modal>
+  );
+}
+
+// ---- ignore files ------------------------------------------------------------------------------
+
+function PresetChips({ presets, on, detected = [], onToggle }: { presets: IgnorePresetDTO[]; on: Set<string>; detected?: string[]; onToggle: (id: string) => void }) {
+  // detected presets first, so what matches the project is easy to find
+  const ordered = [...presets].sort((a, b) => Number(detected.includes(b.id)) - Number(detected.includes(a.id)));
+  return (
+    <div className="chips">
+      {ordered.map((p) => (
+        <button key={p.id} type="button" className={`chip${on.has(p.id) ? ' on' : ''}`} onClick={() => onToggle(p.id)} title={p.description} aria-pressed={on.has(p.id)}>
+          {on.has(p.id) && <Icon n="check" s={12} />}{p.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function IgnoreDialog({ onClose }: { onClose: () => void }) {
+  const s = useStore();
+  const [presets, setPresets] = useState<IgnorePresetDTO[]>([]);
+  const [text, setText] = useState<string | null>(null);
+  const [saved, setSaved] = useState('');
+  const [busy, setBusy] = useState(false);
+  const applied = new Set([...(text ?? '').matchAll(/^# >>> vd-preset:([\w-]+)/gm)].map((m) => m[1]!));
+
+  useEffect(() => {
+    void window.vd.ignorePresets().then(setPresets);
+    void window.vd.ignoreRead(s.repoId!).then((i) => { setText(i.text); setSaved(i.text); });
+  }, [s.repoId]);
+
+  const toggle = async (id: string) => {
+    if (text === null) return;
+    setText((await window.vd.ignoreEdit(text, id, !applied.has(id))).text);
+  };
+
+  return (
+    <Modal title="Ignore files" onClose={onClose} wide footer={
+      <>
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn primary" disabled={busy || text === null || text === saved} onClick={async () => {
+          setBusy(true);
+          try { await window.vd.ignoreWrite(s.repoId!, text!); await s.refresh(); onClose(); }
+          catch (e: any) { s.toast({ kind: 'error', text: e.message }); setBusy(false); }
+        }}>Save</button>
+      </>
+    }>
+      <div>
+        <label className="label">Presets</label>
+        {text === null ? <span className="spinner" /> : <PresetChips presets={presets} on={applied} onToggle={(id) => void toggle(id)} />}
+      </div>
+      <div>
+        <label className="label">Rules <span className="faint">(.vdignore, one pattern per line)</span></label>
+        <textarea className="field mono" rows={11} spellCheck={false} value={text ?? ''} onChange={(e) => setText(e.target.value)} style={{ fontSize: 12 }} />
+      </div>
+      <div className="faint">Files that are already committed stay tracked even if they match a rule, so nothing in your history changes. Rules apply to new files.</div>
     </Modal>
   );
 }

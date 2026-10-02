@@ -39,10 +39,23 @@ function ChangesPanel() {
   const items: MenuEntry[] = menu
     ? [
         { label: 'Discard changes…', icon: 'undo', danger: true, onClick: () => confirmDiscard([menu.file.path]) },
+        ...(menu.file.status === 'added' ? ignoreItems(menu.file.path) : []),
         { label: 'Reveal in folder', icon: 'folder', onClick: () => void window.vd.revealInFolder(s.repoId!, menu.file.path) },
         ...(s.sync.hasRemote ? [{ label: 'Lock file for editing', icon: 'lock', onClick: () => void lock(menu.file.path) } as MenuEntry] : []),
       ]
     : [];
+
+  /** Offer to ignore this file, its extension, or its folder (only useful for files not yet committed). */
+  function ignoreItems(path: string): MenuEntry[] {
+    const [dir, name] = splitPath(path);
+    const ext = name.includes('.') ? name.slice(name.lastIndexOf('.')) : '';
+    const add = (pattern: string) => () => void window.vd.ignoreAdd(s.repoId!, pattern).then(() => s.toast({ kind: 'ok', text: `Now ignoring ${pattern}` }));
+    return [
+      { label: 'Ignore this file', icon: 'eye', onClick: add(`/${path}`), sep: false },
+      ...(ext ? [{ label: `Ignore all ${ext} files`, icon: 'eye', onClick: add(`*${ext}`) } as MenuEntry] : []),
+      ...(dir ? [{ label: `Ignore folder ${dir}`, icon: 'eye', onClick: add(dir) } as MenuEntry] : []),
+    ];
+  }
 
   function confirmDiscard(paths: string[] | undefined) {
     s.openDialog({

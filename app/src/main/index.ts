@@ -161,6 +161,13 @@ function registerIpc() {
     comments: (id: string, c: string) => m.comments(id, c),
     addComment: (id: string, c: string, t: string) => m.addComment(id, c, t),
 
+    ignorePresets: () => m.ignorePresets(),
+    ignoreDetect: (d: string) => m.ignoreDetect(d),
+    ignoreRead: (id: string) => m.ignoreRead(id),
+    ignoreEdit: (t: string, p: string, on: boolean) => m.ignoreEdit(t, p, on),
+    ignoreWrite: (id: string, t: string) => m.ignoreWrite(id, t),
+    ignoreAdd: (id: string, p: string) => m.ignoreAdd(id, p),
+
     storage: (id: string) => m.storage(id),
     setCompression: (id: string, l) => m.setCompression(id, l),
   };

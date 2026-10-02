@@ -13,6 +13,7 @@ export interface Theme {
   image?: string;
   imageDim: number; // 0-90 (% of bg color laid over the image)
   scale: number; // interface size, 0.9-1.25
+  floating: boolean; // panels float as separate cards, with no bar behind the toolbar
   codeSize: number; // px
 }
 
@@ -34,6 +35,7 @@ export const DEFAULT_THEME: Theme = {
   background: 'solid',
   imageDim: 55,
   scale: 1,
+  floating: true,
   codeSize: 12.5,
 };
 
@@ -103,6 +105,7 @@ export function applyTheme(t: Theme) {
   root.style.colorScheme = dark ? 'dark' : 'light';
   root.dataset.theme = dark ? 'dark' : 'light';
   root.style.zoom = String(t.scale);
+  root.classList.toggle('floating', t.floating);
 
   // background style: panels become translucent so the wallpaper shows through
   if (t.background === 'solid') {

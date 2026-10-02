@@ -2,6 +2,7 @@ export * from './chunker.js';
 export * from './compress.js';
 export * from './crypto.js';
 export * from './ignore.js';
+export * from './ignore-presets.js';
 export * from './objects.js';
 export * from './repo.js';
 export * from './storage.js';

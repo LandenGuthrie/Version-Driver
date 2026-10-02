@@ -283,22 +283,31 @@ export class Repository {
     }
   }
 
-  private async walk(ignore: Ignore): Promise<{ rel: string; abs: string; size: number; mtimeMs: number; mode: number }[]> {
+  /**
+   * Ignore rules only apply to files we don't track yet (like git): adding a rule never makes
+   * a committed file look deleted. So ignored folders are still entered if they hold tracked files.
+   */
+  private async walk(ignore: Ignore, tracked: Snapshot): Promise<{ rel: string; abs: string; size: number; mtimeMs: number; mode: number }[]> {
     const out: { rel: string; abs: string; size: number; mtimeMs: number; mode: number }[] = [];
-    const rec = async (abs: string, rel: string) => {
+    const trackedDirs = new Set<string>();
+    for (const p of tracked.keys()) {
+      for (let i = p.indexOf('/'); i >= 0; i = p.indexOf('/', i + 1)) trackedDirs.add(p.slice(0, i));
+    }
+    const rec = async (abs: string, rel: string, parentIgnored: boolean) => {
       for (const e of await readdir(abs, { withFileTypes: true })) {
         const r = rel ? `${rel}/${e.name}` : e.name;
         const a = join(abs, e.name);
         if (e.isSymbolicLink()) continue; // symlinks are not tracked yet
         if (e.isDirectory()) {
-          if (!ignore.ignores(r, true)) await rec(a, r);
-        } else if (e.isFile() && !ignore.ignores(r, false)) {
+          const ign = parentIgnored || ignore.ignores(r, true);
+          if (!ign || trackedDirs.has(r)) await rec(a, r, ign);
+        } else if (e.isFile() && (!(parentIgnored || ignore.ignores(r, false)) || tracked.has(r))) {
           const st = await lstat(a);
           out.push({ rel: r, abs: a, size: st.size, mtimeMs: st.mtimeMs, mode: st.mode & 0o111 ? 0o755 : 0o644 });
         }
       }
     };
-    await rec(this.dir, '');
+    await rec(this.dir, '', false);
     return out;
   }
 
@@ -323,7 +332,8 @@ export class Repository {
   }
 
   private async scan(write = false, only?: Set<string>): Promise<Snapshot> {
-    const files = (await this.walk(await this.loadIgnore())).filter((f) => !only || only.has(f.rel));
+    const tracked = await this.snapshotOf(await this.headId());
+    const files = (await this.walk(await this.loadIgnore(), tracked)).filter((f) => !only || only.has(f.rel));
     const recs = await pool(files, 4, (f) => this.hashFile(f, write));
     const snap: Snapshot = new Map();
     files.forEach((f, i) => snap.set(f.rel, recs[i]!));

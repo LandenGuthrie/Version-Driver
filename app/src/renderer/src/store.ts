@@ -10,6 +10,7 @@ export type Dialog =
   | { t: 'publish' }
   | { t: 'newBranch' }
   | { t: 'settings' }
+  | { t: 'ignore' }
   | { t: 'conflict'; op: 'merge' | 'revert'; ref: string; paths: string[] }
   | { t: 'confirm'; title: string; body: string; confirmLabel: string; danger?: boolean; run: () => Promise<void> };
 

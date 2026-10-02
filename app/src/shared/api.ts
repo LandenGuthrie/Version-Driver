@@ -91,6 +91,18 @@ export interface MemberDTO {
   me: boolean;
 }
 
+export interface IgnorePresetDTO {
+  id: string;
+  name: string;
+  description: string;
+}
+
+export interface IgnoreInfo {
+  text: string;
+  /** ids of presets currently switched on */
+  applied: string[];
+}
+
 export interface StorageStats {
   logicalBytes: number;
   storedBytes: number;
@@ -151,7 +163,7 @@ export interface VdApi {
   // repositories
   listRepos(): Promise<RepoSummary[]>;
   pickFolder(): Promise<string | null>;
-  createRepo(a: { dir: string; name: string; level?: 'fast' | 'balanced' | 'max' }): Promise<RepoSummary>;
+  createRepo(a: { dir: string; name: string; level?: 'fast' | 'balanced' | 'max'; ignore?: string[] }): Promise<RepoSummary>;
   addExisting(dir: string): Promise<RepoSummary>;
   removeRepo(id: string): Promise<void>;
   setRemoteFolder(id: string, path: string): Promise<RepoSummary>;
@@ -173,6 +185,16 @@ export interface VdApi {
   discard(id: string, paths?: string[]): Promise<void>;
   restoreFile(id: string, a: { path: string; commitId: string }): Promise<void>;
   revealInFolder(id: string, path: string): Promise<void>;
+
+  // ignore rules (.vdignore)
+  ignorePresets(): Promise<IgnorePresetDTO[]>;
+  /** Presets that suit what's in this folder (Unity, Unreal, Rider…). */
+  ignoreDetect(dir: string): Promise<string[]>;
+  ignoreRead(id: string): Promise<IgnoreInfo>;
+  /** Pure helper: switch a preset on/off inside some .vdignore text. */
+  ignoreEdit(text: string, presetId: string, on: boolean): Promise<IgnoreInfo>;
+  ignoreWrite(id: string, text: string): Promise<void>;
+  ignoreAdd(id: string, pattern: string): Promise<void>;
 
   // branches
   branches(id: string): Promise<BranchDTO[]>;
