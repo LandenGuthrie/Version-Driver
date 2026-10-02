@@ -1,0 +1,65 @@
+# Builds installers for Windows, macOS and Linux and attaches them to a GitHub Release.
+#
+# To publish a version:
+#   1. bump "version" in app/package.json (e.g. 0.2.0)
+#   2. git commit, then:  git tag v0.2.0 && git push --tags
+# The installers then appear under the repo's "Releases" page a few minutes later.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run typecheck
+
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Check the tag matches the app version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          v=$(node -p "require('./app/package.json').version")
+          if [ "refs/tags/v$v" != "$GITHUB_REF" ]; then
+            echo "Tag $GITHUB_REF does not match app/package.json version $v"; exit 1
+          fi
+      - run: npm ci
+      - name: Build and publish the installer
+        run: >
+          npm run release -w app --
+          -c.publish.provider=github
+          -c.publish.owner=${{ github.repository_owner }}
+          -c.publish.repo=${{ github.event.repository.name }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Baked into the build at compile time. Add both under Settings > Secrets and variables > Actions.
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}

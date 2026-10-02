@@ -1,0 +1,13 @@
+{
+  "name": "version-driver",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Encrypted, compressed, Google Drive-backed version control",
+  "workspaces": ["core", "app"],
+  "scripts": {
+    "test": "npm test -w core",
+    "dev": "npm run dev -w app",
+    "build": "npm run build -w app",
+    "typecheck": "npm run typecheck -w core && npm run typecheck -w app"
+  }
+}
