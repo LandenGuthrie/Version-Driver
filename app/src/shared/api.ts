@@ -246,5 +246,11 @@ export interface VdApi {
 declare global {
   interface Window {
     vd: VdApi;
+    /** Raw preload bridge; the renderer wraps it into `vd` (see renderer/src/bridge.ts). */
+    vdRaw?: {
+      platform: 'win32' | 'darwin' | 'linux';
+      invoke(name: string, ...args: unknown[]): Promise<unknown>;
+      on: VdApi['on'];
+    };
   }
 }

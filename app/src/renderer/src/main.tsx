@@ -6,8 +6,11 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { useStore } from './store';
 
 async function start() {
-  // In a plain browser (UI development) there's no Electron bridge, so use the mock.
-  if (!window.vd) {
+  if (window.vdRaw) {
+    const { installBridge } = await import('./bridge');
+    installBridge();
+  } else if (!window.vd) {
+    // In a plain browser (UI development) there's no Electron bridge, so use the mock.
     const { installMock } = await import('./mock');
     installMock();
   }
