@@ -10,7 +10,9 @@ export function Dialogs() {
   if (!d) return null;
   switch (d.t) {
     case 'newRepo': return <NewRepo onClose={close} />;
-    case 'clone': return <Clone onClose={close} link={d.link} />;
+    case 'clone': return <Clone onClose={close} link={d.link} presetId={d.folderId} presetName={d.name} />;
+    case 'vaultCreate': return <VaultCreate onClose={() => useStore.getState().finishVault(false)} />;
+    case 'vaultUnlock': return <VaultUnlock onClose={() => useStore.getState().finishVault(false)} />;
     case 'share': return <Share onClose={close} />;
     case 'storage': return <Storage onClose={close} />;
     case 'publish': return <Publish onClose={close} />;
@@ -53,6 +55,7 @@ function NewRepo({ onClose }: { onClose: () => void }) {
   const [level, setLevel] = useState<'fast' | 'balanced' | 'max'>('balanced');
   const [mode, setMode] = useState<'new' | 'existing'>('new');
   const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState('');
   const [presets, setPresets] = useState<IgnorePresetDTO[]>([]);
   const [chosen, setChosen] = useState<Set<string>>(new Set(['os']));
   const [detected, setDetected] = useState<string[]>([]);
@@ -65,15 +68,24 @@ function NewRepo({ onClose }: { onClose: () => void }) {
   const dir = mode === 'new' ? (parent ? `${parent.replace(/[\\/]$/, '')}${parent.includes('\\') ? '\\' : '/'}${slug(name)}` : '') : parent;
   const fname = mode === 'existing' ? parent.split(/[\\/]/).filter(Boolean).pop() ?? '' : name;
 
+  const create = async () => {
+    setBusy(true);
+    setStatus('Creating…');
+    const r = await s.guard(null, () => window.vd.createRepo({ dir, name: mode === 'existing' ? fname : name.trim(), level, ignore: [...chosen], initialCommit: mode === 'existing' ? 'all' : 'ignore-only' }));
+    if (!r) { setBusy(false); setStatus(''); return; }
+    await s.reloadRepos();
+    await s.selectRepo(r.id);
+    s.openDialog(null);
+    // Versions live in Google Drive, so publishing is part of creating. The toolbar shows its progress.
+    void s.publish(r.id);
+  };
+
   return (
     <Modal title="New repository" onClose={onClose} footer={
       <>
-        <button className="btn" onClick={onClose}>Cancel</button>
-        <button className="btn primary" disabled={busy || !dir || !(mode === 'existing' || name.trim())} onClick={async () => {
-          setBusy(true);
-          const r = await s.guard(null, () => window.vd.createRepo({ dir, name: mode === 'existing' ? fname : name.trim(), level, ignore: [...chosen], initialCommit: mode === 'existing' ? 'all' : 'ignore-only' }));
-          if (r) { await s.reloadRepos(); await s.selectRepo(r.id); onClose(); } else setBusy(false);
-        }}>Create repository</button>
+        {busy && <span className="row faint" style={{ marginRight: 'auto', fontSize: 12 }}><span className="spinner" />{status}</span>}
+        <button className="btn" onClick={onClose} disabled={busy}>Cancel</button>
+        <button className="btn primary" disabled={busy || !dir || !(mode === 'existing' || name.trim())} onClick={() => void create()}>Create and publish to Drive</button>
       </>
     }>
       <div className="seg" style={{ alignSelf: 'flex-start' }}>
@@ -103,8 +115,7 @@ function NewRepo({ onClose }: { onClose: () => void }) {
         <PresetChips presets={presets} on={chosen} detected={detected} onToggle={(id) => setChosen((c) => { const n = new Set(c); n.has(id) ? n.delete(id) : n.add(id); return n; })} />
         <div className="faint" style={{ marginTop: 6 }}>Skips things that shouldn't be versioned, like caches and build output. You can change this any time.</div>
       </div>
-      {mode === 'existing' && <div className="faint">The files already in this folder are saved as the first version. Large projects can take a minute.</div>}
-      <div className="row muted"><Icon n="shield" s={15} /> Everything is encrypted on this device before it's stored. History lives in a hidden <span className="mono">.vdriver</span> folder in your project, like Git's <span className="mono">.git</span>.</div>
+      <div className="row muted" style={{ lineHeight: 1.45 }}><Icon n="cloud" s={15} /> Saved to a “Version Driver” folder in your Google Drive. Encrypted on this computer first; history is kept in a hidden <span className="mono">.vdriver</span> folder in your project, like Git's <span className="mono">.git</span>.</div>
     </Modal>
   );
 }
@@ -114,22 +125,20 @@ function parseLink(link: string): string | null {
   return m ? m[1]! : /^[\w-]{20,}$/.test(link.trim()) ? link.trim() : null;
 }
 
-function Clone({ onClose, link: initial }: { onClose: () => void; link?: string }) {
+function Clone({ onClose, link: initial, presetId, presetName }: { onClose: () => void; link?: string; presetId?: string; presetName?: string }) {
   const s = useStore();
-  const [tab, setTab] = useState<'link' | 'drive' | 'folder' | 'existing'>(initial ? 'link' : 'drive');
+  const [tab, setTab] = useState<'link' | 'drive' | 'existing'>(initial ? 'link' : 'drive');
   const [link, setLink] = useState(initial ?? '');
   const [dirParent, setDirParent] = useState('');
-  const [name, setName] = useState('');
-  const [remotePath, setRemotePath] = useState('');
+  const [name, setName] = useState(presetName ?? '');
   const [list, setList] = useState<{ folderId: string; name: string }[] | null>(null);
-  const [pick, setPick] = useState<string | null>(null);
+  const [pick, setPick] = useState<string | null>(presetId ?? null);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState(false);
-  const google = s.profile?.mode === 'google';
 
   useEffect(() => {
-    if (tab === 'drive' && google && list === null) window.vd.listDriveRepos().then(setList).catch(() => setList([]));
-  }, [tab, google, list]);
+    if (tab === 'drive' && list === null) window.vd.listDriveRepos().then(setList).catch(() => setList([]));
+  }, [tab, list]);
 
   const target = (n: string) => (dirParent ? `${dirParent.replace(/[\\/]$/, '')}${dirParent.includes('\\') ? '\\' : '/'}${slug(n)}` : '');
   const folderId = tab === 'link' ? parseLink(link) : pick;
@@ -141,11 +150,14 @@ function Clone({ onClose, link: initial }: { onClose: () => void; link?: string 
     try {
       let r;
       if (tab === 'existing') r = await window.vd.addExisting(dirParent);
-      else if (tab === 'folder') r = await window.vd.cloneFromFolder({ path: remotePath, dir: target(name || remotePath.split(/[\\/]/).pop() || 'repository') });
-      else r = await window.vd.cloneFromDrive({ folderId: folderId!, dir: target(repoName || 'repository') });
+      else {
+        // an account that was set up on another computer must be unlocked here before its repositories can be opened
+        if (!(await s.ensureVault('unlock'))) { setBusy(false); return; }
+        r = await window.vd.cloneFromDrive({ folderId: folderId!, dir: target(repoName || 'repository') });
+      }
       await s.reloadRepos();
       await s.selectRepo(r.id);
-      onClose();
+      s.openDialog(null);
     } catch (e: any) {
       if (e.code === 'pending') setPending(true);
       else s.toast({ kind: 'error', text: e.message });
@@ -153,7 +165,7 @@ function Clone({ onClose, link: initial }: { onClose: () => void; link?: string 
     }
   };
 
-  const ready = tab === 'existing' ? !!dirParent : tab === 'folder' ? !!remotePath && !!dirParent : !!folderId && !!dirParent;
+  const ready = tab === 'existing' ? !!dirParent : !!folderId && !!dirParent;
 
   return (
     <Modal title="Clone or join a repository" onClose={onClose} wide footer={
@@ -165,25 +177,24 @@ function Clone({ onClose, link: initial }: { onClose: () => void; link?: string 
       <div className="seg" style={{ alignSelf: 'flex-start' }}>
         <button className={tab === 'drive' ? 'on' : ''} onClick={() => setTab('drive')}>My Drive</button>
         <button className={tab === 'link' ? 'on' : ''} onClick={() => setTab('link')}>Invite link</button>
-        <button className={tab === 'folder' ? 'on' : ''} onClick={() => setTab('folder')}>Folder</button>
         <button className={tab === 'existing' ? 'on' : ''} onClick={() => setTab('existing')}>On this computer</button>
       </div>
 
-      {tab === 'drive' && (!google ? <div className="muted">Sign in with Google to see repositories in your Drive.</div> : (
+      {tab === 'drive' && (
         <div style={{ border: '1px solid var(--border)', borderRadius: 8, maxHeight: 190, overflow: 'auto' }}>
-          {list === null && <div className="row" style={{ padding: 12 }}><span className="spinner" /> Looking in your Drive…</div>}
-          {list?.length === 0 && <div className="muted" style={{ padding: 12 }}>No repositories found. If a teammate invited you, use the Invite link tab.</div>}
+          {list === null && <div className="row" style={{ padding: 12 }}><span className="spinner" /> Looking in your “Version Driver” folder…</div>}
+          {list?.length === 0 && <div className="muted" style={{ padding: 12 }}>Nothing found in your Drive. If a teammate invited you, use the Invite link tab.</div>}
           {list?.map((l) => (
             <div key={l.folderId} className={`file${pick === l.folderId ? ' sel' : ''}`} onClick={() => { setPick(l.folderId); setName(l.name); }}>
               <Icon n="cloud" s={15} /><b className="grow">{l.name}</b>{pick === l.folderId && <Icon n="check" s={14} />}
             </div>
           ))}
         </div>
-      ))}
+      )}
 
       {tab === 'link' && (
         <div>
-          <label className="label">Invite link or folder id</label>
+          <label className="label">Invite link</label>
           <input className="field mono" value={link} onChange={(e) => setLink(e.target.value)} placeholder="versiondriver://join/…" autoFocus />
           <div className="faint" style={{ marginTop: 6 }}>Your teammate can copy this from the Share dialog. After you join, an admin has to approve you before you can read anything.</div>
           <label className="label" style={{ marginTop: 12 }}>Name this repository locally</label>
@@ -191,12 +202,7 @@ function Clone({ onClose, link: initial }: { onClose: () => void; link?: string 
         </div>
       )}
 
-      {tab === 'folder' && (
-        <div>
-          <label className="label">Remote folder (for example a synced Drive for Desktop folder)</label>
-          <div className="row"><input className="field" value={remotePath} onChange={(e) => setRemotePath(e.target.value)} /><button className="btn" onClick={async () => { const p = await window.vd.pickFolder(); if (p) setRemotePath(p); }}>Browse</button></div>
-        </div>
-      )}
+      {tab === 'existing' && <div className="faint">Add a project folder that Version Driver already tracks on this computer, for example after removing it from the app.</div>}
 
       <div>
         <label className="label">{tab === 'existing' ? 'Project folder' : 'Clone into'}</label>
@@ -216,34 +222,22 @@ function Clone({ onClose, link: initial }: { onClose: () => void; link?: string 
 function Publish({ onClose }: { onClose: () => void }) {
   const s = useStore();
   const repo = s.repos.find((r) => r.id === s.repoId)!;
-  const [busy, setBusy] = useState(false);
-  const [folder, setFolder] = useState('');
   const google = s.profile?.mode === 'google';
 
-  const run = async (fn: () => Promise<unknown>) => {
-    setBusy(true);
-    const ok = await s.guard(null, fn);
-    if (ok !== undefined) { await s.reloadRepos(); await s.refresh(); onClose(); } else setBusy(false);
+  const go = () => {
+    s.openDialog(null);
+    void s.publish(repo.id); // progress shows in the toolbar
   };
 
   return (
-    <Modal title="Publish repository" onClose={onClose}>
+    <Modal title="Publish to Google Drive" onClose={onClose}>
       <p className="muted" style={{ margin: 0, lineHeight: 1.55 }}>
-        Publishing creates a private <b>Version Driver / {repo.name}</b> folder in your Google Drive. Your files are compressed and encrypted here first; Google only ever stores unreadable data.
+        Version Driver keeps this project in a <b>Version Driver</b> folder in your Google Drive, as <b>{repo.name}</b>. Your files are compressed and encrypted on this computer first, so Google only stores unreadable data. The files already in your project become the first version.
       </p>
-      <button className="btn primary block" disabled={busy || !google} onClick={() => void run(() => window.vd.publishToDrive(repo.id))}>
-        {busy ? <span className="spinner" /> : <Icon n="cloud" s={15} />} Publish to Google Drive
+      <button className="btn primary block" disabled={!google} onClick={go}>
+        <Icon n="cloud" s={15} /> Publish to Google Drive
       </button>
-      {!google && <div className="faint">You're in local mode. Sign out and sign in with Google to publish to Drive.</div>}
-      <div className="menu-sep" />
-      <div>
-        <label className="label">Or use any folder as the remote (USB drive, network share, Drive for Desktop…)</label>
-        <div className="row">
-          <input className="field" value={folder} onChange={(e) => setFolder(e.target.value)} placeholder="Choose a folder…" />
-          <button className="btn" onClick={async () => { const p = await window.vd.pickFolder(); if (p) setFolder(p); }}>Browse</button>
-          <button className="btn" disabled={!folder || busy} onClick={() => void run(() => window.vd.setRemoteFolder(repo.id, folder))}>Use</button>
-        </div>
-      </div>
+      {!google && <div className="faint">Sign in with Google to publish.</div>}
     </Modal>
   );
 }
@@ -830,5 +824,61 @@ function RemotePanel({ onClose }: { onClose: () => void }) {
       </div>
       <span hidden>{String(onClose)}</span>
     </>
+  );
+}
+
+// ---- recovery password -----------------------------------------------------------------------------
+
+function VaultCreate({ onClose }: { onClose: () => void }) {
+  const s = useStore();
+  const [pw, setPw] = useState('');
+  const [again, setAgain] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const ok = pw.length >= 8 && pw === again;
+  return (
+    <Modal title="Set a recovery password" onClose={onClose} footer={
+      <>
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn primary" disabled={!ok || busy} onClick={async () => {
+          setBusy(true);
+          try { await window.vd.vaultCreate(pw); s.finishVault(true); } catch (e: any) { setErr(e.message); setBusy(false); }
+        }}>{busy && <span className="spinner" />}Save password</button>
+      </>
+    }>
+      <p className="muted" style={{ margin: 0, lineHeight: 1.55 }}>
+        Everything is encrypted before it reaches Google Drive. This password lets <b>your other computers</b> open the same projects when you sign in there. Version Driver can't reset it, so keep it somewhere safe.
+      </p>
+      <div><label className="label">Password (at least 8 characters)</label><input className="field" type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus /></div>
+      <div><label className="label">Type it again</label><input className="field" type="password" value={again} onChange={(e) => setAgain(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && ok && !busy && (e.currentTarget.closest('.modal')?.querySelector('.btn.primary') as HTMLElement)?.click()} /></div>
+      {again && pw !== again && <div className="badge red">The passwords don't match</div>}
+      {err && <div className="badge red">{err}</div>}
+    </Modal>
+  );
+}
+
+function VaultUnlock({ onClose }: { onClose: () => void }) {
+  const s = useStore();
+  const [pw, setPw] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const go = async () => {
+    setBusy(true);
+    setErr('');
+    try { await window.vd.vaultUnlock(pw); s.finishVault(true); } catch (e: any) { setErr(e.message); setBusy(false); }
+  };
+  return (
+    <Modal title="Unlock your projects" onClose={onClose} footer={
+      <>
+        <button className="btn" onClick={onClose}>Not now</button>
+        <button className="btn primary" disabled={!pw || busy} onClick={() => void go()}>{busy && <span className="spinner" />}Unlock</button>
+      </>
+    }>
+      <p className="muted" style={{ margin: 0, lineHeight: 1.55 }}>
+        This Google account already has projects in Version Driver. Enter the recovery password you set up on your other computer to open them here.
+      </p>
+      <div><label className="label">Recovery password</label><input className="field" type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus onKeyDown={(e) => e.key === 'Enter' && pw && !busy && void go()} /></div>
+      {err && <div className="badge red">{err}</div>}
+    </Modal>
   );
 }

@@ -67,6 +67,11 @@ export function generateIdentity(): Identity {
   return { publicKey: kp.publicKey, privateKey: kp.privateKey };
 }
 
+/** Rebuild a full identity from its private key (the public half is derived). */
+export function identityFromPrivate(privateKey: Uint8Array): Identity {
+  return { privateKey, publicKey: sodium.crypto_scalarmult_base(privateKey) };
+}
+
 export function wrapKeyFor(recipientPublic: Uint8Array, repoKey: Uint8Array): Uint8Array {
   return sodium.crypto_box_seal(repoKey, recipientPublic);
 }

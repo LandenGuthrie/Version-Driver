@@ -4,7 +4,9 @@ import type { BranchDTO, ChangeDTO, CommitDTO, Profile, Progress, RepoSummary, S
 
 export type Dialog =
   | { t: 'newRepo' }
-  | { t: 'clone'; link?: string }
+  | { t: 'clone'; link?: string; folderId?: string; name?: string }
+  | { t: 'vaultCreate' }
+  | { t: 'vaultUnlock' }
   | { t: 'share' }
   | { t: 'storage' }
   | { t: 'publish' }
@@ -59,6 +61,10 @@ interface S {
   sidebarWidth: number;
   online: { id: string; name: string; branch?: string }[];
   progress: Progress | null;
+  /** pushes/pulls in flight, per repository, so they survive switching projects */
+  syncing: Record<string, string>;
+  syncProgress: Record<string, Progress>;
+  vaultWaiter: ((ok: boolean) => void) | null;
   busy: string | null;
   summary: string;
   description: string;
@@ -90,6 +96,11 @@ interface S {
   dismissToast(id: number): void;
   setTheme(patch: Partial<Theme>): void;
   guard<T>(label: string | null, fn: () => Promise<T>): Promise<T | undefined>;
+  /** Make sure this computer can use the account's repositories. 'create' also asks for a recovery password if none exists. */
+  /** Publish a repository to Google Drive (asks for a recovery password first if the account has none). */
+  publish(id: string): Promise<boolean>;
+  ensureVault(need: 'create' | 'unlock'): Promise<boolean>;
+  finishVault(ok: boolean): void;
 }
 
 let toastId = 1;
@@ -114,6 +125,9 @@ export const useStore = create<S>((set, get) => ({
   sidebarWidth: Math.min(640, Math.max(260, Number(ls.get('vd.sidebarW')) || 340)),
   online: [],
   progress: null,
+  syncing: {},
+  syncProgress: {},
+  vaultWaiter: null,
   busy: null,
   summary: '',
   description: '',
@@ -143,8 +157,8 @@ export const useStore = create<S>((set, get) => ({
     });
     vd.on('presence:changed', (p) => p.repoId === get().repoId && set({ online: p.online.filter((o) => o.id !== get().profile?.id) }));
     vd.on('progress', (p) => {
-      if (p.repoId && p.repoId !== get().repoId) return;
-      set({ progress: p.done >= p.total ? null : p });
+      if (p.repoId) set({ syncProgress: { ...get().syncProgress, [p.repoId]: p } });
+      else set({ progress: p.done >= p.total ? null : p });
     });
     vd.on('update:ready', ({ version }) =>
       get().toast({ kind: 'info', text: `Version Driver ${version} is ready to install`, action: { label: 'Restart', run: () => void window.vd.installUpdate() } }),
@@ -153,6 +167,8 @@ export const useStore = create<S>((set, get) => ({
     vd.on('focus', ({ focused }) => focused && get().repoId && void get().refresh());
 
     // The app opens on the main menu (the repository list); picking a project opens it.
+    // A new computer signing in to an account that already has a recovery password has to unlock it first.
+    if (profile?.mode === 'google') void get().ensureVault('unlock');
   },
 
   async signIn() {
@@ -266,19 +282,22 @@ export const useStore = create<S>((set, get) => ({
     if (!id) return;
     const label = { fetch: 'Fetching', pull: 'Pulling', push: 'Pushing' }[kind];
     try {
-      set({ busy: label });
+      set({ syncing: { ...get().syncing, [id]: label } });
       const r = await window.vd[kind](id);
       if (kind === 'push' && (r as { pushed: number }).pushed === 0) get().toast({ kind: 'ok', text: 'Everything is already up to date' });
       if (kind === 'push' && (r as { pushed: number }).pushed > 0) get().toast({ kind: 'ok', text: 'Pushed to the remote' });
       if (kind === 'pull') get().toast({ kind: 'ok', text: (r as { kind: string }).kind === 'up-to-date' ? 'Already up to date' : 'Pulled the latest changes' });
       await get().refresh();
     } catch (e: any) {
-      if (e.code === 'rejected' || e.code === 'conflict') {
+      if (e.code === 'unpublished') get().openDialog({ t: 'publish' });
+      else if (e.code === 'rejected' || e.code === 'conflict') {
         if (e.code === 'conflict') get().openDialog({ t: 'conflict', op: 'merge', ref: 'origin', paths: e.paths ?? [] });
         else get().toast({ kind: 'error', text: 'The remote has newer commits. Pull first, then push again.', action: { label: 'Pull', run: () => void get().doSync('pull') } });
       } else get().toast({ kind: 'error', text: e.message });
     } finally {
-      set({ busy: null, progress: null });
+      const { [id]: _a, ...syncing } = get().syncing;
+      const { [id]: _b, ...syncProgress } = get().syncProgress;
+      set({ syncing, syncProgress });
     }
   },
 
@@ -321,6 +340,42 @@ export const useStore = create<S>((set, get) => ({
     applyTheme(theme);
     saveTheme(theme);
     set({ theme });
+  },
+
+  async publish(id) {
+    if (!(await get().ensureVault('create'))) {
+      get().toast({ kind: 'info', text: 'Not published yet. Set a recovery password and publish whenever you are ready.' });
+      return false;
+    }
+    set({ syncing: { ...get().syncing, [id]: 'Publishing' } });
+    try {
+      await window.vd.publishToDrive(id);
+      get().toast({ kind: 'ok', text: 'Published to your Google Drive' });
+      return true;
+    } catch (e: any) {
+      get().toast({ kind: 'error', text: e.message });
+      return false;
+    } finally {
+      const { [id]: _a, ...syncing } = get().syncing;
+      const { [id]: _b, ...syncProgress } = get().syncProgress;
+      set({ syncing, syncProgress });
+      await get().reloadRepos();
+      await get().refresh();
+    }
+  },
+
+  async ensureVault(need) {
+    const st = await window.vd.vaultStatus();
+    if (st === 'ready' || st === 'unavailable' || (st === 'none' && need === 'unlock')) return true;
+    return new Promise<boolean>((resolve) => {
+      set({ vaultWaiter: resolve, dialog: { t: st === 'none' ? 'vaultCreate' : 'vaultUnlock' } });
+    });
+  },
+
+  finishVault(ok) {
+    const w = get().vaultWaiter;
+    set({ vaultWaiter: null, dialog: null });
+    w?.(ok);
   },
 
   async guard(label, fn) {

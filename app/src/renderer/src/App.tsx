@@ -10,7 +10,8 @@ import { Home } from './components/Home';
 import { Resizer } from './components/Resizer';
 
 export function App() {
-  const { ready, profile, repoId, boot, toasts, dismissToast, progress, busy, sidebarWidth } = useStore();
+  const { ready, profile, repoId, boot, toasts, dismissToast, progress: cloneProgress, syncProgress, busy, sidebarWidth } = useStore();
+  const progress = (repoId && syncProgress[repoId]) || cloneProgress;
   useEffect(() => void boot(), [boot]);
 
   if (!ready) return <div className="welcome"><div className="logo"><Logo s={30} /></div></div>;
@@ -19,7 +20,7 @@ export function App() {
   const noRepo = !repoId;
   return (
     <div className="app">
-      {progress && progress.total > 0 && <div className="progressbar"><i style={{ width: `${(progress.done / progress.total) * 100}%` }} /></div>}
+      {progress && progress.total > 0 && progress.done < progress.total && <div className="progressbar"><i style={{ width: `${(progress.done / progress.total) * 100}%` }} /></div>}
       <Toolbar />
       {noRepo ? (
         <Home />

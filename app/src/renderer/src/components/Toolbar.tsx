@@ -123,11 +123,13 @@ async function mergeInto(repoId: string, ref: string) {
 }
 
 function SyncButton() {
-  const { sync, busy, doSync, openDialog, progress } = useStore();
+  const { sync, doSync, openDialog, syncing, syncProgress, repoId } = useStore();
+  const busy = repoId ? syncing[repoId] : undefined;
+  const progress = repoId ? syncProgress[repoId] : undefined;
   if (!sync.hasRemote) {
     return <button className="btn primary" onClick={() => openDialog({ t: 'publish' })}><Icon n="cloud" s={15} /> Publish to Drive</button>;
   }
-  const pct = progress && progress.total ? Math.round((progress.done / progress.total) * 100) : null;
+  const pct = progress && progress.total && progress.done < progress.total ? Math.round((progress.done / progress.total) * 100) : null;
   if (busy) {
     return (
       <button className="btn" disabled>

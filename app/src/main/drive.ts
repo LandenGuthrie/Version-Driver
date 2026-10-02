@@ -418,27 +418,78 @@ async function driveJson<T>(token: string, url: string, init?: RequestInit): Pro
   return (await res.json()) as T;
 }
 
-/** Create "Version Driver/<name>" in My Drive and return the repo folder id. */
-export async function createRepoFolder(getToken: () => Promise<string>, name: string): Promise<string> {
-  const token = await getToken();
+async function findAppFolder(token: string): Promise<string | undefined> {
   const q = new URLSearchParams({
     q: `name='Version Driver' and mimeType='${FOLDER}' and 'root' in parents and trashed=false`,
     fields: 'files(id)',
+    orderBy: 'createdTime',
     pageSize: '1',
   });
-  let { files } = await driveJson<{ files: { id: string }[] }>(token, `${API}/files?${q}`);
-  if (!files[0]) {
-    const made = await driveJson<{ id: string }>(token, `${API}/files?fields=id`, {
-      method: 'POST',
-      body: JSON.stringify({ name: 'Version Driver', mimeType: FOLDER }),
-    });
-    files = [made];
-  }
-  const repo = await driveJson<{ id: string }>(token, `${API}/files?fields=id`, {
+  return (await driveJson<{ files: { id: string }[] }>(token, `${API}/files?${q}`)).files[0]?.id;
+}
+
+/** The top-level "Version Driver" folder in My Drive, created on first use. Every repository lives inside it. */
+export async function ensureAppFolder(getToken: () => Promise<string>): Promise<string> {
+  const token = await getToken();
+  const existing = await findAppFolder(token);
+  if (existing) return existing;
+  return (await driveJson<{ id: string }>(token, `${API}/files?fields=id`, {
     method: 'POST',
-    body: JSON.stringify({ name, mimeType: FOLDER, parents: [files[0]!.id] }),
+    body: JSON.stringify({ name: 'Version Driver', mimeType: FOLDER }),
+  })).id;
+}
+
+/** Create "Version Driver/<name>" in My Drive and return the repo folder id. */
+export async function createRepoFolder(getToken: () => Promise<string>, name: string): Promise<string> {
+  const parent = await ensureAppFolder(getToken);
+  const repo = await driveJson<{ id: string }>(await getToken(), `${API}/files?fields=id`, {
+    method: 'POST',
+    body: JSON.stringify({ name, mimeType: FOLDER, parents: [parent] }),
   });
   return repo.id;
+}
+
+// ---- account vault ------------------------------------------------------------------------------
+// One small file in the "Version Driver" folder holding this account's device key, locked with a
+// recovery password. It's what lets a new computer unlock the same repositories.
+
+const VAULT_NAME = '.vd-account.json';
+
+export interface VaultFile {
+  v: 1;
+  publicKey: string;
+  wrapped: string;
+  createdAt: number;
+}
+
+export async function readVault(getToken: () => Promise<string>): Promise<{ id: string; data: VaultFile } | null> {
+  const token = await getToken();
+  const parent = await findAppFolder(token);
+  if (!parent) return null;
+  const q = new URLSearchParams({
+    q: `name='${VAULT_NAME}' and '${parent}' in parents and trashed=false`,
+    fields: 'files(id)',
+    orderBy: 'createdTime',
+    pageSize: '1',
+  });
+  const { files } = await driveJson<{ files: { id: string }[] }>(token, `${API}/files?${q}`);
+  if (!files[0]) return null;
+  const res = await fetch(`${API}/files/${files[0].id}?alt=media`, { headers: { authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new DriveError(res.status, `Could not read the account file (${res.status})`);
+  return { id: files[0].id, data: (await res.json()) as VaultFile };
+}
+
+export async function writeVault(getToken: () => Promise<string>, data: VaultFile): Promise<void> {
+  const token = await getToken();
+  const parent = await ensureAppFolder(getToken);
+  const boundary = `vd${Math.random().toString(36).slice(2)}`;
+  const body = `--${boundary}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name: VAULT_NAME, parents: [parent] })}\r\n--${boundary}\r\ncontent-type: application/json\r\n\r\n${JSON.stringify(data)}\r\n--${boundary}--`;
+  const res = await fetch(`${UPLOAD}/files?uploadType=multipart&fields=id`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': `multipart/related; boundary=${boundary}` },
+    body,
+  });
+  if (!res.ok) throw new DriveError(res.status, `Could not save the account file (${res.status})`);
 }
 
 /** Repo folders this account can see (created by it, or opened through it). */

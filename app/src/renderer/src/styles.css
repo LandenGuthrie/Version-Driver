@@ -412,3 +412,11 @@ input[type='range'] { accent-color: var(--accent); }
 .settings-nav button:hover { color: var(--text); background: var(--hover); }
 .settings-nav button.on { color: var(--text); background: var(--active); }
 .settings-body { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+
+/* ================= search rows ================= */
+.search-row { display: flex; align-items: center; gap: 8px; padding: 4px 12px; border-bottom: 1px solid var(--border); }
+.search-row .field.plain { flex: 1; min-width: 0; }
+
+/* centre empty states that fill their panel */
+.empty { justify-content: center; }

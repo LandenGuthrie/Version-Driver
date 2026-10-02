@@ -174,7 +174,12 @@ export interface VdApi {
   /** Forget a repository. Project files are never deleted; deleteHistory also removes the .vdriver folder. */
   removeRepo(id: string, opts?: { deleteHistory?: boolean; deleteRemote?: boolean }): Promise<void>;
   setRemoteFolder(id: string, path: string): Promise<RepoSummary>;
+  /** Creates Version Driver/<name> in Drive, uploads the repository, and saves + uploads the first version. */
   publishToDrive(id: string): Promise<RepoSummary>;
+  /** Recovery password for this Google account, so another computer can open the same repositories. */
+  vaultStatus(): Promise<'none' | 'ready' | 'locked' | 'unavailable'>;
+  vaultCreate(password: string): Promise<void>;
+  vaultUnlock(password: string): Promise<void>;
   listDriveRepos(): Promise<{ folderId: string; name: string }[]>;
   cloneFromDrive(a: { folderId: string; dir: string }): Promise<RepoSummary>;
   cloneFromFolder(a: { path: string; dir: string }): Promise<RepoSummary>;

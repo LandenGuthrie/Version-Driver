@@ -65,6 +65,20 @@ export function Viewer() {
   const [dir, name] = path ? splitPath(path) : ['', ''];
   const lang = path ? langOf(path) : undefined;
 
+  // History only exists once the repository is on Google Drive
+  if (s.tab === 'history' && !s.sync.hasRemote) {
+    return (
+      <main className="content">
+        <div className="empty" style={{ height: '100%' }}>
+          <div className="icon-wrap"><Icon n="cloud" s={22} /></div>
+          <h3>Publish to Google Drive</h3>
+          <span>Version Driver keeps your versions in your Google Drive, in a folder called “Version Driver”. Publish this project to start its history.</span>
+          <button className="btn primary" onClick={() => s.openDialog({ t: 'publish' })}><Icon n="cloud" s={15} /> Publish to Google Drive</button>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="content">
       {commit && <CommitBar />}

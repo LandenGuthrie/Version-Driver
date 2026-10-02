@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import {
   initCrypto, Repository, chunkBuffer, generateIdentity, wrapKeyFor, unwrapKey,
-  generateRepoKey, wrapWithPassphrase, unwrapWithPassphrase, safetyNumber,
+  generateRepoKey, wrapWithPassphrase, unwrapWithPassphrase, safetyNumber, identityFromPrivate,
   ConflictError, DirtyTreeError, Ignore,
 } from '../src/index.js';
 
@@ -56,6 +56,17 @@ describe('crypto', () => {
     expect(unwrapWithPassphrase(blob, 'correct horse')).toEqual(key);
     expect(() => unwrapWithPassphrase(blob, 'wrong')).toThrow();
     expect(safetyNumber(alice.publicKey)).toMatch(/^([0-9A-F]{4}-){4}[0-9A-F]{4}$/);
+  });
+
+  it('restores a device identity from a password-wrapped private key (moving to a new computer)', () => {
+    const old = generateIdentity();
+    const repoKey = generateRepoKey();
+    const wrappedForOldDevice = wrapKeyFor(old.publicKey, repoKey);
+    const vault = wrapWithPassphrase(old.privateKey, 'a long password');
+    const restored = identityFromPrivate(unwrapWithPassphrase(vault, 'a long password'));
+    expect(restored.publicKey).toEqual(old.publicKey);
+    expect(unwrapKey(restored, wrappedForOldDevice)).toEqual(repoKey);
+    expect(() => unwrapWithPassphrase(vault, 'wrong password')).toThrow();
   });
 });
 

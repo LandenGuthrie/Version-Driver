@@ -11,6 +11,7 @@ import {
   heartbeat, clearPresence, listPresence, listLocks, acquireLock, releaseLock, addComment, listComments,
   generateIdentity, b64, fromB64, hex, fromHex, readRepoMeta, type Backend, type Identity, type Author,
   IGNORE_PRESETS, appliedPresets, setPreset, addPattern, detectPresets, DEFAULT_IGNORE,
+  wrapWithPassphrase, unwrapWithPassphrase, identityFromPrivate,
 } from '@vd/core';
 import type {
   BranchDTO, ChangeDTO, CommitDTO, Events, FileDiff, IgnoreInfo, IgnorePresetDTO, LockDTO, MemberDTO, Profile, RepoSummary,
@@ -18,7 +19,7 @@ import type {
 } from '../shared/api';
 import { getSecret, setSecret, deleteSecret } from './keystore';
 import { getAccessToken, signIn, cancelSignIn, signOutGoogle, googleConfigured } from './auth';
-import { DriveBackend, createRepoFolder, listRepoFolders, tagRepoFolder } from './drive';
+import { DriveBackend, createRepoFolder, listRepoFolders, tagRepoFolder, readVault, writeVault } from './drive';
 import { kindOf, looksBinary, mimeOf, textRows, MAX_DIFF_BYTES } from './files';
 
 interface Ctx {
@@ -122,7 +123,7 @@ export class Manager {
 
   private loadKeys(repoId: string): Map<number, Uint8Array> {
     const raw = getSecret(`repokey:${repoId}`);
-    if (!raw) throw new Error('The encryption key for this repository is not on this device.');
+    if (!raw) throw new Error("This computer doesn't have the encryption key for that project. If it's saved in your Google Drive, clone it from the \"My Drive\" tab instead.");
     return new Map(Object.entries(JSON.parse(raw) as Record<string, string>).map(([e, k]) => [Number(e), fromHex(k)]));
   }
 
@@ -232,14 +233,8 @@ export class Manager {
       for (const id of a.ignore) text = setPreset(text, id, true);
       await writeFile(join(repo.dir, '.vdignore'), text);
     }
-    // The first commit gives the repo a starting point to publish. For an existing project it saves
-    // everything that isn't ignored; for a fresh folder there is only the ignore file to save.
-    const all = a.initialCommit === 'all';
-    await repo.commit({
-      summary: 'Initial commit',
-      description: all ? 'Saved the project as it was when Version Driver started tracking it' : 'Added .vdignore',
-      paths: all ? undefined : ['.vdignore'],
-    });
+    // Nothing is committed yet: versions only exist once the repository is published to Google Drive,
+    // which saves the first version (everything that isn't ignored) and uploads it.
     return this.register(repo);
   }
 
@@ -257,7 +252,8 @@ export class Manager {
     this.ctxs.delete(id);
     this.registry = this.registry.filter((r) => r.id !== id);
     await this.saveRegistry();
-    deleteSecret(`repokey:${id}`);
+    // Keep the key unless the history is being deleted too, so the folder can be added back later.
+    if (opts.deleteHistory) deleteSecret(`repokey:${id}`);
     // Only ever delete the .vdriver folder itself, and only if it really is one. Project files stay untouched.
     if (opts.deleteHistory && dir) {
       const vd = join(dir, '.vdriver');
@@ -282,7 +278,7 @@ export class Manager {
   private async remote(id: string): Promise<{ c: Ctx; client: RemoteClient; backend: Backend }> {
     const c = await this.ctx(id);
     const backend = await this.backendFor(c);
-    if (!backend) throw new Error('This repository has no remote yet. Publish it to Google Drive or set a folder remote first.');
+    if (!backend) throw Object.assign(new Error('Publish this repository to Google Drive first.'), { code: 'unpublished' });
     c.client ??= new RemoteClient(backend, c.repo.store, this.me());
     return { c, client: c.client, backend };
   }
@@ -303,8 +299,12 @@ export class Manager {
     return this.summary(id);
   }
 
+  /** Create the Drive folder, upload the repository, and save + upload the first version if there is none. */
   async publishToDrive(id: string) {
     if (this.profile?.mode !== 'google') throw new Error('Sign in with Google to publish to Drive.');
+    const vault = await this.vaultStatus();
+    if (vault === 'locked') throw Object.assign(new Error('Unlock your Version Driver library first.'), { code: 'vault_locked' });
+    if (vault === 'none') throw Object.assign(new Error('Set a recovery password first.'), { code: 'vault_missing' });
     const c = await this.ctx(id);
     const folderId = await createRepoFolder(getAccessToken, c.repo.config.name);
     await tagRepoFolder(getAccessToken, folderId);
@@ -317,7 +317,55 @@ export class Manager {
     c.repo.config.remotes.origin = { kind: 'drive', folderId };
     await c.repo.saveConfig();
     c.client = undefined;
+    // The very first version: everything in the folder that isn't ignored.
+    if (!(await c.repo.headId())) {
+      await c.repo.commit({ summary: 'Initial commit', description: 'Saved the project as it was when it was published to Google Drive' });
+    }
+    if (await c.repo.currentBranch()) await this.push(id);
     return this.summary(id);
+  }
+
+  // ---- account vault (moving to another computer) -----------------------------------------------
+
+  /**
+   * 'none'   no recovery password has been set for this Google account yet
+   * 'ready'  this computer holds the account key
+   * 'locked' the account has a key from another computer: enter the recovery password to use it here
+   */
+  async vaultStatus(): Promise<'none' | 'ready' | 'locked' | 'unavailable'> {
+    if (this.profile?.mode !== 'google') return 'unavailable';
+    try {
+      const v = await readVault(getAccessToken);
+      if (!v) return 'none';
+      return v.data.publicKey === b64(this.identity.publicKey) ? 'ready' : 'locked';
+    } catch {
+      return 'unavailable';
+    }
+  }
+
+  async vaultCreate(password: string) {
+    if (password.length < 8) throw new Error('Use at least 8 characters.');
+    if ((await this.vaultStatus()) !== 'none') throw new Error('A recovery password is already set for this account.');
+    await writeVault(getAccessToken, {
+      v: 1,
+      publicKey: b64(this.identity.publicKey),
+      wrapped: b64(wrapWithPassphrase(this.identity.privateKey, password)),
+      createdAt: Date.now(),
+    });
+  }
+
+  async vaultUnlock(password: string) {
+    const v = await readVault(getAccessToken);
+    if (!v) throw new Error('No recovery password has been set for this account.');
+    let identity: Identity;
+    try {
+      identity = identityFromPrivate(unwrapWithPassphrase(fromB64(v.data.wrapped), password));
+    } catch {
+      throw Object.assign(new Error("That password isn't right."), { code: 'bad_password' });
+    }
+    if (b64(identity.publicKey) !== v.data.publicKey) throw Object.assign(new Error("That password isn't right."), { code: 'bad_password' });
+    this.identity = identity;
+    setSecret('identity', JSON.stringify({ pub: b64(identity.publicKey), priv: b64(identity.privateKey) }));
   }
 
   async listDriveRepos() {
@@ -446,6 +494,7 @@ export class Manager {
 
   async commit(id: string, a: { summary: string; description: string; paths: string[] }): Promise<CommitDTO> {
     const repo = await this.repo(id);
+    if (!repo.config.remotes.origin) throw Object.assign(new Error('Publish this repository to Google Drive before saving versions.'), { code: 'unpublished' });
     const c = await repo.commit({ summary: a.summary, description: a.description, paths: a.paths });
     this.emit('repo:changed', { repoId: id });
     return toCommit(c);

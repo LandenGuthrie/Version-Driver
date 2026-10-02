@@ -31,6 +31,8 @@ export function KindIcon({ k }: { k: ChangeDTO['kind'] }) {
 function ChangesPanel() {
   const s = useStore();
   const [menu, setMenu] = useState<{ x: number; y: number; file: ChangeDTO } | null>(null);
+  const [filter, setFilter] = useState('');
+  const visible = filter ? s.changes.filter((c) => c.path.toLowerCase().includes(filter.toLowerCase())) : s.changes;
   const checked = s.changes.length - s.unchecked.size;
   const all = checked === s.changes.length && s.changes.length > 0;
   const some = checked > 0 && !all;
@@ -86,8 +88,9 @@ function ChangesPanel() {
         {s.changes.length > 0 && <button className="btn ghost sm" onClick={() => confirmDiscard(undefined)}>Discard all</button>}
       </div>
 
+      {s.changes.length > 0 && <SearchRow value={filter} onChange={setFilter} placeholder="Filter changed files" />}
       <div className="files" role="listbox" aria-label="Changed files">
-        {s.changes.map((c) => {
+        {visible.map((c) => {
           const [dir, name] = splitPath(c.path);
           return (
             <div
@@ -103,6 +106,9 @@ function ChangesPanel() {
             </div>
           );
         })}
+        {filter && visible.length === 0 && s.changes.length > 0 && (
+          <div className="empty"><h3>No files match “{filter}”</h3></div>
+        )}
         {s.changes.length === 0 && (
           <div className="empty">
             <div className="icon-wrap"><Icon n="check" s={22} /></div>
@@ -113,6 +119,12 @@ function ChangesPanel() {
         )}
       </div>
 
+      {!s.sync.hasRemote ? (
+        <div className="commit-box">
+          <div className="row muted" style={{ lineHeight: 1.45 }}><Icon n="cloud" s={16} /> Versions are saved to your Google Drive.</div>
+          <button className="btn primary block" onClick={() => s.openDialog({ t: 'publish' })}><Icon n="cloud" s={15} /> Publish to Google Drive</button>
+        </div>
+      ) : (
       <div className="commit-box">
         <div className="row">
           <Avatar name={s.profile?.name ?? 'Me'} src={s.profile?.picture} />
@@ -128,6 +140,7 @@ function ChangesPanel() {
           Commit {checked > 0 ? `${checked} file${checked === 1 ? '' : 's'} ` : ''}to <b className="ellipsis" style={{ maxWidth: 120 }}>{branch}</b>
         </button>
       </div>
+      )}
       <ContextMenu at={menu} items={items} onClose={() => setMenu(null)} />
     </>
   );
@@ -136,6 +149,7 @@ function ChangesPanel() {
 function HistoryPanel() {
   const s = useStore();
   const [q, setQ] = useState('');
+  const [fileFilter, setFileFilter] = useState('');
   const [topPct, setTopPct] = useState(() => {
     try { return Math.min(80, Math.max(20, Number(localStorage.getItem('vd.histSplit')) || 55)); } catch { return 55; }
   });
@@ -146,6 +160,7 @@ function HistoryPanel() {
     return m;
   }, [s.branches]);
   const unpushed = useMemo(() => new Set(s.sync.unpushed), [s.sync.unpushed]);
+  const shownFiles = fileFilter ? s.commitFiles.filter((f) => f.path.toLowerCase().includes(fileFilter.toLowerCase())) : s.commitFiles;
   const shown = q ? s.commits.filter((c) => (c.summary + c.author.name + c.id).toLowerCase().includes(q.toLowerCase())) : s.commits;
 
   const dragSplit = (e: React.PointerEvent) => {
@@ -165,6 +180,14 @@ function HistoryPanel() {
 
   return (
     <>
+      {!s.sync.hasRemote ? (
+        <div className="empty" style={{ flex: 1 }}>
+          <div className="icon-wrap"><Icon n="cloud" s={22} /></div>
+          <h3>Nothing here yet</h3>
+          <span>Your history appears once the repository is published to Google Drive.</span>
+        </div>
+      ) : (
+      <>
       <div className="list-head">
         <Icon n="search" s={14} />
         <input className="field plain" placeholder="Search commits" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -184,7 +207,7 @@ function HistoryPanel() {
             <CommitRow
               key={c.id} c={c} first={i === 0 && s.changes.length === 0} last={i === shown.length - 1} sel={s.selectedCommit === c.id}
               tags={tipByBranch.get(c.id)} isHead={s.branches.find((b) => b.current)?.tip === c.id}
-              notPushed={s.sync.hasRemote && unpushed.has(c.id)} onClick={() => void s.selectCommit(c.id)}
+              notPushed={s.sync.hasRemote && unpushed.has(c.id)} pushed={s.sync.hasRemote && !unpushed.has(c.id)} onClick={() => { setFileFilter(''); void s.selectCommit(c.id); }}
             />
           ))}
           {shown.length === 0 && s.changes.length === 0 && (
@@ -196,8 +219,9 @@ function HistoryPanel() {
             <div className="hsplit" role="separator" aria-orientation="horizontal" aria-label="Resize file list" onPointerDown={dragSplit}><i /></div>
             <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
               <div className="list-head">{s.commitFiles.length} file{s.commitFiles.length === 1 ? '' : 's'} changed</div>
+              {s.commitFiles.length > 1 && <SearchRow value={fileFilter} onChange={setFileFilter} placeholder="Filter files in this commit" />}
               <div className="files">
-                {s.commitFiles.map((c) => {
+                {shownFiles.map((c) => {
                   const [dir, name] = splitPath(c.path);
                   return (
                     <div key={c.path} className={`file${s.commitFile === c.path ? ' sel' : ''}`} onClick={() => s.setCommitFile(c.path)}>
@@ -213,11 +237,13 @@ function HistoryPanel() {
           </>
         )}
       </div>
+      </>
+      )}
     </>
   );
 }
 
-function CommitRow({ c, first, last, sel, tags, isHead, notPushed, onClick }: { c: CommitDTO; first: boolean; last: boolean; sel: boolean; tags?: string[]; isHead: boolean; notPushed: boolean; onClick: () => void }) {
+function CommitRow({ c, first, last, sel, tags, isHead, notPushed, pushed, onClick }: { c: CommitDTO; first: boolean; last: boolean; sel: boolean; tags?: string[]; isHead: boolean; notPushed: boolean; pushed: boolean; onClick: () => void }) {
   return (
     <div className={`commit${sel ? ' sel' : ''}${first ? ' first' : ''}${last ? ' last' : ''}${c.parents.length > 1 ? ' merge' : ''}${isHead ? ' head' : ''}`} onClick={onClick}>
       <div className="rail"><i /></div>
@@ -228,11 +254,22 @@ function CommitRow({ c, first, last, sel, tags, isHead, notPushed, onClick }: { 
           <span className="ellipsis">{c.author.name}</span>
           <span>·</span>
           <span>{timeAgo(c.time)}</span>
-          {notPushed && <span className="badge blue" title="This commit is only on this computer so far"><Icon n="up" s={10} />Not pushed</span>}
+          {notPushed && <span className="badge blue" title="Saved on this computer, but not uploaded to Google Drive yet"><Icon n="up" s={10} />Not pushed</span>}
+          {pushed && <span className="badge green" title="Uploaded to Google Drive"><Icon n="cloud" s={10} />Pushed</span>}
           <span className="mono faint" style={{ marginLeft: 'auto' }}>{c.id.slice(0, 7)}</span>
         </div>
         {tags && <div className="row" style={{ marginTop: 4, flexWrap: 'wrap', gap: 4 }}>{tags.map((t) => <span key={t} className="badge orange"><Icon n="branch" s={10} />{t}</span>)}</div>}
       </div>
+    </div>
+  );
+}
+
+function SearchRow({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  return (
+    <div className="search-row">
+      <Icon n="search" s={14} className="faint" />
+      <input className="field plain" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} spellCheck={false} />
+      {value && <button className="btn ghost icon sm" onClick={() => onChange('')} aria-label="Clear filter"><Icon n="x" s={13} /></button>}
     </div>
   );
 }

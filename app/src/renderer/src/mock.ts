@@ -115,7 +115,8 @@ export function installMock() {
     return out;
   };
 
-  const repo: RepoSummary = { id: 'demo', name: 'Demo Project', dir: 'C:\\Projects\\Demo Project', branch: 'main', remote: { name: 'origin', kind: 'drive', label: 'Google Drive', folderId: '1AbCdEfGhIjKlMnOpQrStUvWxYz' } };
+  const unpublished = (() => { try { return localStorage.getItem('mock.unpublished') === '1'; } catch { return false; } })();
+  const repo: RepoSummary = { id: 'demo', name: 'Demo Project', dir: 'C:\\Projects\\Demo Project', branch: 'main', remote: unpublished ? null : { name: 'origin', kind: 'drive', label: 'Google Drive', folderId: '1AbCdEfGhIjKlMnOpQrStUvWxYz' } };
   const members: MemberDTO[] = [
     { id: 'me', name: 'Landen Guthrie', email: 'landen@gmail.com', role: 'owner', status: 'active', safety: 'A1B2-C3D4-E5F6-0718-293A', online: true, me: true },
     { id: 's', name: 'Sam Rivera', email: 'sam@gmail.com', role: 'editor', status: 'active', safety: '1111-2222-3333-4444-5555', online: true, me: false },
@@ -145,6 +146,9 @@ export function installMock() {
     removeRepo: async () => undefined,
     setRemoteFolder: async () => repo,
     publishToDrive: async () => repo,
+    vaultStatus: async () => 'ready',
+    vaultCreate: async () => undefined,
+    vaultUnlock: async () => undefined,
     listDriveRepos: () => wait([{ folderId: 'a', name: 'Album Masters' }, { folderId: 'b', name: 'Game Assets' }]),
     cloneFromDrive: async () => repo,
     cloneFromFolder: async () => repo,
@@ -190,7 +194,7 @@ export function installMock() {
     merge: async () => ({ kind: 'merge' }),
     revert: async () => commits[0]!,
     resetTo: async () => undefined,
-    syncState: () => wait({ hasRemote: true, branch: 'main', ahead: 1, behind: 0, unpushed: ['c3'] }),
+    syncState: () => wait(unpublished ? { hasRemote: false, branch: 'main', ahead: 0, behind: 0, unpushed: [] } : { hasRemote: true, branch: 'main', ahead: 1, behind: 0, unpushed: ['c3'] }),
     renameRepo: async (_id, name) => ({ ...repo, name }),
     deleteRemote: async () => ({ ...repo, remote: null }),
     fetch: async () => ({ updated: 0 }),
