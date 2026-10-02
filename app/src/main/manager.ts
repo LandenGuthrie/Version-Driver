@@ -188,6 +188,9 @@ export class Manager {
       for (const id of a.ignore) text = setPreset(text, id, true);
       await writeFile(join(repo.dir, '.vdignore'), text);
     }
+    // A first commit gives the repo a starting point to publish. Only the ignore rules go in; the
+    // project's own files stay as ordinary changes for the user to review.
+    await repo.commit({ summary: 'Initial commit', description: 'Added .vdignore', paths: ['.vdignore'] });
     return this.register(repo);
   }
 

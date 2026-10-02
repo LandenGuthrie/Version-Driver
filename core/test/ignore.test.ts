@@ -93,4 +93,15 @@ describe('ignore rules vs tracked files', () => {
     await w('Library/cache.bin', 'edited tracked file');
     expect((await repo.status()).map((c) => c.path)).toContain('Library/cache.bin');
   });
+
+  it('a new repo starts with an initial commit of just .vdignore', async () => {
+    await w('Assets/Player.cs', 'class Player {}');
+    await w('readme.md', '# hi');
+    const { repo } = await Repository.init(dir, { name: 't', user: { name: 'T', email: 't@x.com' } });
+    await repo.commit({ summary: 'Initial commit', description: 'Added .vdignore', paths: ['.vdignore'] });
+
+    expect((await repo.log()).map((c) => c.summary)).toEqual(['Initial commit']);
+    expect((await repo.changesInCommit((await repo.headId())!)).map((c) => c.path)).toEqual(['.vdignore']);
+    expect((await repo.status()).map((c) => `${c.status}:${c.path}`)).toEqual(['added:Assets/Player.cs', 'added:readme.md']);
+  });
 });
