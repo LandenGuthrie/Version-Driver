@@ -166,7 +166,7 @@ export interface VdApi {
   listRepos(): Promise<RepoSummary[]>;
   pickFolder(): Promise<string | null>;
   /** initialCommit 'all' saves every (non-ignored) file in the folder as the first version; 'ignore-only' just the ignore rules. */
-  createRepo(a: { dir: string; name: string; level?: 'fast' | 'balanced' | 'max'; ignore?: string[]; initialCommit?: 'all' | 'ignore-only' }): Promise<RepoSummary>;
+  createRepo(a: { dir: string; name: string; level?: 'fast' | 'balanced' | 'max'; ignore?: string[]; initialCommit?: 'all' | 'ignore-only'; replaceOldHistory?: boolean }): Promise<RepoSummary>;
   renameRepo(id: string, name: string): Promise<RepoSummary>;
   /** Move the repository's Google Drive folder to the Drive trash and detach the remote. */
   deleteRemote(id: string): Promise<RepoSummary>;

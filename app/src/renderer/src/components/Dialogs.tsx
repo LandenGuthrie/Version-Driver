@@ -68,16 +68,31 @@ function NewRepo({ onClose }: { onClose: () => void }) {
   const dir = mode === 'new' ? (parent ? `${parent.replace(/[\\/]$/, '')}${parent.includes('\\') ? '\\' : '/'}${slug(name)}` : '') : parent;
   const fname = mode === 'existing' ? parent.split(/[\\/]/).filter(Boolean).pop() ?? '' : name;
 
-  const create = async () => {
+  const create = async (replaceOldHistory = false) => {
     setBusy(true);
     setStatus('Creating…');
-    const r = await s.guard(null, () => window.vd.createRepo({ dir, name: mode === 'existing' ? fname : name.trim(), level, ignore: [...chosen], initialCommit: mode === 'existing' ? 'all' : 'ignore-only' }));
-    if (!r) { setBusy(false); setStatus(''); return; }
-    await s.reloadRepos();
-    await s.selectRepo(r.id);
-    s.openDialog(null);
-    // Versions live in Google Drive, so publishing is part of creating. The toolbar shows its progress.
-    void s.publish(r.id);
+    const make = () => window.vd.createRepo({ dir, name: mode === 'existing' ? fname : name.trim(), level, ignore: [...chosen], initialCommit: mode === 'existing' ? 'all' : 'ignore-only', replaceOldHistory });
+    const finish = async (id: string) => {
+      await s.reloadRepos();
+      await s.selectRepo(id);
+      s.openDialog(null);
+      // Versions live in Google Drive, so publishing is part of creating. The toolbar shows its progress.
+      void s.publish(id);
+    };
+    try {
+      await finish((await make()).id);
+    } catch (e: any) {
+      setBusy(false);
+      setStatus('');
+      if (e.code === 'has_history') {
+        // leftover from an earlier setup whose key is gone: offer a clean start
+        s.openDialog({
+          t: 'confirm', title: 'Start fresh in this folder?', danger: true, confirmLabel: 'Delete old history and continue',
+          body: 'This folder still has the hidden \u201c.vdriver\u201d history from an earlier setup. Its encryption key is gone, so it can\u2019t be opened any more. Delete it and start fresh? Your project files are not touched.',
+          run: async () => { await finish((await window.vd.createRepo({ dir, name: mode === 'existing' ? fname : name.trim(), level, ignore: [...chosen], initialCommit: mode === 'existing' ? 'all' : 'ignore-only', replaceOldHistory: true })).id); },
+        });
+      } else s.toast({ kind: 'error', text: e.message });
+    }
   };
 
   return (
@@ -85,7 +100,7 @@ function NewRepo({ onClose }: { onClose: () => void }) {
       <>
         {busy && <span className="row faint" style={{ marginRight: 'auto', fontSize: 12 }}><span className="spinner" />{status}</span>}
         <button className="btn" onClick={onClose} disabled={busy}>Cancel</button>
-        <button className="btn primary" disabled={busy || !dir || !(mode === 'existing' || name.trim())} onClick={() => void create()}>Create and publish to Drive</button>
+        <button className="btn primary" disabled={busy || !dir || !(mode === 'existing' || name.trim())} onClick={() => void create(false)}>Create and publish to Drive</button>
       </>
     }>
       <div className="seg" style={{ alignSelf: 'flex-start' }}>

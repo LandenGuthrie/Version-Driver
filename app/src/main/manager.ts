@@ -224,8 +224,25 @@ export class Manager {
     return out;
   }
 
-  async createRepo(a: { dir: string; name: string; level?: 'fast' | 'balanced' | 'max'; ignore?: string[]; initialCommit?: 'all' | 'ignore-only' }) {
+  async createRepo(a: { dir: string; name: string; level?: 'fast' | 'balanced' | 'max'; ignore?: string[]; initialCommit?: 'all' | 'ignore-only'; replaceOldHistory?: boolean }) {
     await mkdir(a.dir, { recursive: true });
+    // A folder that was tracked before keeps a hidden .vdriver folder, even after the app or the Drive copy is gone.
+    const vd = join(a.dir, '.vdriver');
+    const old = await readFile(join(vd, 'config.json'), 'utf8').then((t) => JSON.parse(t) as { repoId: string }).catch(() => null);
+    if (old) {
+      const keyHere = !!getSecret(`repokey:${old.repoId}`);
+      if (keyHere && !a.replaceOldHistory) {
+        throw Object.assign(new Error('This folder is already a Version Driver project on this computer. Use Clone or join → On this computer to add it back.'), { code: 'has_history_key' });
+      }
+      if (!a.replaceOldHistory) {
+        throw Object.assign(new Error('This folder has old Version Driver history that can no longer be opened.'), { code: 'has_history' });
+      }
+      // Only ever remove the .vdriver folder itself; the project's own files are never touched.
+      await rm(vd, { recursive: true, force: true });
+      deleteSecret(`repokey:${old.repoId}`);
+      this.registry = this.registry.filter((r) => r.id !== old.repoId);
+      await this.saveRegistry();
+    }
     const { repo, repoKey } = await Repository.init(a.dir, { name: a.name, user: this.me(), level: a.level });
     this.saveKeys(repo.config.repoId, new Map([[1, repoKey]]));
     if (a.ignore?.length) {
