@@ -135,6 +135,24 @@ export class DriveBackend implements Backend {
     return { files, cursor: String(this.seq) };
   }
 
+  /** Rename the repository's Drive folder. */
+  async renameRoot(name: string) {
+    await this.json(`${API}/files/${this.o.rootFolderId}?fields=id`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  /** Move the whole repository folder to the Drive trash (recoverable there for 30 days). */
+  async trashRoot() {
+    await this.json(`${API}/files/${this.o.rootFolderId}?fields=id`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ trashed: true }),
+    });
+  }
+
   // ---- sharing ---------------------------------------------------------------
 
   async share(email: string, role: 'writer' | 'reader') {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { IgnorePresetDTO, MemberDTO, Role, StorageStats } from '../../../shared/api';
 import { useStore } from '../store';
 import { Avatar, Icon, Modal, fmtBytes } from '../ui';
@@ -18,6 +18,7 @@ export function Dialogs() {
     case 'settings': return <Settings onClose={close} />;
     case 'ignore': return <IgnoreDialog onClose={close} />;
     case 'removeRepo': return <RemoveRepo onClose={close} />;
+    case 'repoSettings': return <RepoSettings onClose={close} section={d.section} />;
     case 'conflict': return <Conflict onClose={close} {...d} />;
     case 'confirm': return <Confirm onClose={close} {...d} />;
   }
@@ -70,7 +71,7 @@ function NewRepo({ onClose }: { onClose: () => void }) {
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn primary" disabled={busy || !dir || !(mode === 'existing' || name.trim())} onClick={async () => {
           setBusy(true);
-          const r = await s.guard(null, () => window.vd.createRepo({ dir, name: mode === 'existing' ? fname : name.trim(), level, ignore: [...chosen] }));
+          const r = await s.guard(null, () => window.vd.createRepo({ dir, name: mode === 'existing' ? fname : name.trim(), level, ignore: [...chosen], initialCommit: mode === 'existing' ? 'all' : 'ignore-only' }));
           if (r) { await s.reloadRepos(); await s.selectRepo(r.id); onClose(); } else setBusy(false);
         }}>Create repository</button>
       </>
@@ -102,7 +103,8 @@ function NewRepo({ onClose }: { onClose: () => void }) {
         <PresetChips presets={presets} on={chosen} detected={detected} onToggle={(id) => setChosen((c) => { const n = new Set(c); n.has(id) ? n.delete(id) : n.add(id); return n; })} />
         <div className="faint" style={{ marginTop: 6 }}>Skips things that shouldn't be versioned, like caches and build output. You can change this any time.</div>
       </div>
-      <div className="row muted"><Icon n="shield" s={15} /> Everything is encrypted on this device before it's stored.</div>
+      {mode === 'existing' && <div className="faint">The files already in this folder are saved as the first version. Large projects can take a minute.</div>}
+      <div className="row muted"><Icon n="shield" s={15} /> Everything is encrypted on this device before it's stored. History lives in a hidden <span className="mono">.vdriver</span> folder in your project, like Git's <span className="mono">.git</span>.</div>
     </Modal>
   );
 }
@@ -602,39 +604,231 @@ function IgnoreDialog({ onClose }: { onClose: () => void }) {
 
 function RemoveRepo({ onClose }: { onClose: () => void }) {
   const s = useStore();
-  const repo = s.repos.find((r) => r.id === s.repoId)!;
-  const [history, setHistory] = useState(false);
+  // Captured once: after removal the repo is gone from the store, and this dialog must not re-read it.
+  const repo = useRef(s.repos.find((r) => r.id === s.repoId)).current;
+  const onDrive = repo?.remote?.kind === 'drive';
+  const [history, setHistory] = useState(true);
+  const [drive, setDrive] = useState(onDrive);
   const [busy, setBusy] = useState(false);
+  if (!repo) return null;
+
+  const go = async () => {
+    setBusy(true);
+    try {
+      await window.vd.removeRepo(repo.id, { deleteHistory: history, deleteRemote: drive });
+    } catch (e: any) {
+      s.toast({ kind: 'error', text: e.message });
+      setBusy(false);
+      return;
+    }
+    onClose();
+    await s.selectRepo(null);
+    await s.reloadRepos();
+    s.toast({ kind: 'ok', text: `Removed ${repo.name}` });
+  };
 
   return (
-    <Modal title={`Remove “${repo.name}”?`} onClose={onClose} footer={
+    <Modal title={`Remove \u201c${repo.name}\u201d?`} onClose={onClose} footer={
       <>
         <button className="btn" onClick={onClose}>Cancel</button>
-        <button className="btn danger" disabled={busy} onClick={async () => {
-          setBusy(true);
-          try {
-            await window.vd.removeRepo(repo.id, { deleteHistory: history });
-            await s.reloadRepos();
-            await s.selectRepo(useStore.getState().repos[0]?.id ?? null);
-            s.toast({ kind: 'ok', text: `Removed ${repo.name}` });
-            onClose();
-          } catch (e: any) { s.toast({ kind: 'error', text: e.message }); setBusy(false); }
-        }}>{busy && <span className="spinner" />}Remove repository</button>
+        <button className="btn danger" disabled={busy} onClick={go}>{busy && <span className="spinner" />}Remove repository</button>
       </>
     }>
       <p className="muted" style={{ margin: 0, lineHeight: 1.55 }}>
-        This removes the repository from Version Driver on this computer. <b>Your project files are never deleted</b>, and
-        {repo.remote?.kind === 'drive' ? ' the copy in your Google Drive stays where it is.' : ' any remote copy stays where it is.'}
+        This takes the repository out of Version Driver. <b>Your project files are never deleted.</b>
       </p>
       <label className="row" style={{ alignItems: 'flex-start', cursor: 'pointer' }}>
         <input type="checkbox" className="check" style={{ marginTop: 2 }} checked={history} onChange={(e) => setHistory(e.target.checked)} />
         <span>
-          Also delete the version history stored in this folder
-          <span className="faint" style={{ display: 'block', fontSize: 12, marginTop: 2 }}>
-            Removes the hidden <span className="mono">.vdriver</span> folder in <span className="mono">{repo.dir}</span>. Past versions can't be recovered from this computer afterwards.
-          </span>
+          Delete the version history on this computer
+          <span className="faint" style={{ display: 'block', fontSize: 12, marginTop: 2 }}>Removes the hidden <span className="mono">.vdriver</span> folder inside <span className="mono">{repo.dir}</span>.</span>
         </span>
       </label>
+      {onDrive && (
+        <label className="row" style={{ alignItems: 'flex-start', cursor: 'pointer' }}>
+          <input type="checkbox" className="check" style={{ marginTop: 2 }} checked={drive} onChange={(e) => setDrive(e.target.checked)} />
+          <span>
+            Also delete the copy in Google Drive
+            <span className="faint" style={{ display: 'block', fontSize: 12, marginTop: 2 }}>Moves the “{repo.name}” folder to your Drive trash, where you can restore it for 30 days. Teammates lose access.</span>
+          </span>
+        </label>
+      )}
     </Modal>
+  );
+}
+
+// ---- repository settings ---------------------------------------------------------------------------
+
+type Section = 'general' | 'ignore' | 'storage' | 'remote';
+
+function RepoSettings({ onClose, section: initial }: { onClose: () => void; section?: Section }) {
+  const s = useStore();
+  const repo = s.repos.find((r) => r.id === s.repoId);
+  const [section, setSection] = useState<Section>(initial ?? 'general');
+  if (!repo) return null;
+  const nav: [Section, string, string][] = [['general', 'General', 'folder'], ['ignore', 'Ignore files', 'eye'], ['storage', 'Compression', 'disk'], ['remote', 'Google Drive', 'cloud']];
+
+  return (
+    <Modal title="Repository settings" onClose={onClose} wide>
+      <div className="settings-layout">
+        <nav className="settings-nav">
+          {nav.map(([id, label, icon]) => (
+            <button key={id} className={section === id ? 'on' : ''} onClick={() => setSection(id)}><Icon n={icon} s={15} />{label}</button>
+          ))}
+        </nav>
+        <div className="settings-body">
+          {section === 'general' && <GeneralPanel onClose={onClose} />}
+          {section === 'ignore' && <IgnorePanel />}
+          {section === 'storage' && <StoragePanel />}
+          {section === 'remote' && <RemotePanel onClose={onClose} />}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function GeneralPanel({ onClose }: { onClose: () => void }) {
+  const s = useStore();
+  const repo = s.repos.find((r) => r.id === s.repoId)!;
+  const [name, setName] = useState(repo.name);
+  const [busy, setBusy] = useState(false);
+  const dirty = name.trim() !== repo.name && name.trim().length > 0;
+  return (
+    <>
+      <div>
+        <label className="label">Name</label>
+        <div className="row">
+          <input className="field" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && dirty && (e.currentTarget.nextElementSibling as HTMLElement)?.click()} />
+          <button className="btn primary" disabled={!dirty || busy} onClick={async () => {
+            setBusy(true);
+            try { await window.vd.renameRepo(repo.id, name.trim()); await s.reloadRepos(); s.toast({ kind: 'ok', text: 'Renamed' }); }
+            catch (e: any) { s.toast({ kind: 'error', text: e.message }); }
+            setBusy(false);
+          }}>Rename</button>
+        </div>
+        {repo.remote?.kind === 'drive' && <div className="faint" style={{ marginTop: 6 }}>The name is updated in Google Drive too, so teammates see it.</div>}
+      </div>
+      <div>
+        <label className="label">Location</label>
+        <div className="row">
+          <input className="field mono" readOnly value={repo.dir} />
+          <button className="btn" onClick={() => void window.vd.revealInFolder(repo.id, '')}><Icon n="folder" s={14} /> Show</button>
+        </div>
+        <div className="faint" style={{ marginTop: 6 }}>Version history is kept in a hidden <span className="mono">.vdriver</span> folder in here, like Git's <span className="mono">.git</span>. Your files stay exactly where they are.</div>
+      </div>
+      <div className="menu-sep" />
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <div><div style={{ fontWeight: 550 }}>Remove repository</div><div className="faint" style={{ fontSize: 12 }}>Takes it out of Version Driver. Your project files are never deleted.</div></div>
+        <button className="btn danger" onClick={() => s.openDialog({ t: 'removeRepo' })}><Icon n="trash" s={14} /> Remove…</button>
+      </div>
+      <span hidden>{String(onClose)}</span>
+    </>
+  );
+}
+
+function IgnorePanel() {
+  const s = useStore();
+  const [presets, setPresets] = useState<IgnorePresetDTO[]>([]);
+  const [text, setText] = useState<string | null>(null);
+  const [saved, setSaved] = useState('');
+  const [busy, setBusy] = useState(false);
+  const applied = new Set([...(text ?? '').matchAll(/^# >>> vd-preset:([\w-]+)/gm)].map((m) => m[1]!));
+  useEffect(() => {
+    void window.vd.ignorePresets().then(setPresets);
+    void window.vd.ignoreRead(s.repoId!).then((i) => { setText(i.text); setSaved(i.text); });
+  }, [s.repoId]);
+  const toggle = async (id: string) => { if (text !== null) setText((await window.vd.ignoreEdit(text, id, !applied.has(id))).text); };
+  return (
+    <>
+      <div>
+        <label className="label">Presets</label>
+        {text === null ? <span className="spinner" /> : <PresetChips presets={presets} on={applied} onToggle={(id) => void toggle(id)} />}
+      </div>
+      <div>
+        <label className="label">Rules <span className="faint">(.vdignore, one pattern per line)</span></label>
+        <textarea className="field mono" rows={9} spellCheck={false} value={text ?? ''} onChange={(e) => setText(e.target.value)} style={{ fontSize: 12 }} />
+      </div>
+      <div className="row" style={{ justifyContent: 'space-between' }}>
+        <span className="faint" style={{ fontSize: 12 }}>Files already in your history stay tracked. Rules apply to new files.</span>
+        <button className="btn primary" disabled={busy || text === null || text === saved} onClick={async () => {
+          setBusy(true);
+          try { await window.vd.ignoreWrite(s.repoId!, text!); setSaved(text!); await s.refresh(); s.toast({ kind: 'ok', text: 'Ignore rules saved' }); }
+          catch (e: any) { s.toast({ kind: 'error', text: e.message }); }
+          setBusy(false);
+        }}>Save</button>
+      </div>
+    </>
+  );
+}
+
+function StoragePanel() {
+  const s = useStore();
+  const [st, setSt] = useState<StorageStats | null>(null);
+  useEffect(() => { void window.vd.storage(s.repoId!).then(setSt); }, [s.repoId]);
+  if (!st) return <span className="spinner" />;
+  const ratio = st.logicalBytes > 0 ? st.storedBytes / st.logicalBytes : 0;
+  return (
+    <>
+      <div>
+        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}><span className="muted">Your files (latest version)</span><b>{fmtBytes(st.logicalBytes)}</b></div>
+        <div className="bar"><i style={{ width: '100%', background: 'var(--border-strong)' }} /></div>
+      </div>
+      <div>
+        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 6 }}><span className="muted">Stored, including all {st.commits} versions</span><b>{fmtBytes(st.storedBytes)}</b></div>
+        <div className="bar green"><i style={{ width: `${Math.min(100, ratio * 100)}%` }} /></div>
+      </div>
+      {st.logicalBytes > 0 && <div className="row"><span className={`badge ${ratio <= 1 ? 'green' : 'orange'}`}>{ratio <= 1 ? `${Math.round((1 - ratio) * 100)}% smaller than the originals` : `${ratio.toFixed(1)}\u00d7 the latest files (full history included)`}</span><span className="badge">{st.objects.toLocaleString()} objects</span></div>}
+      <div>
+        <label className="label">Compression level</label>
+        <div className="seg">
+          {(['fast', 'balanced', 'max'] as const).map((l) => (
+            <button key={l} className={st.level === l ? 'on' : ''} onClick={async () => { await window.vd.setCompression(s.repoId!, l); setSt({ ...st, level: l }); }}>{l[0]!.toUpperCase() + l.slice(1)}</button>
+          ))}
+        </div>
+        <div className="faint" style={{ marginTop: 6 }}>Applies to new commits. Already-compressed files (MP3, MP4, JPEG, ZIP) are stored as they are.</div>
+      </div>
+    </>
+  );
+}
+
+function RemotePanel({ onClose }: { onClose: () => void }) {
+  const s = useStore();
+  const repo = s.repos.find((r) => r.id === s.repoId)!;
+  const r = repo.remote;
+  if (!r) {
+    return (
+      <>
+        <p className="muted" style={{ margin: 0 }}>This repository only exists on this computer.</p>
+        <button className="btn primary" style={{ alignSelf: 'flex-start' }} onClick={() => s.openDialog({ t: 'publish' })}><Icon n="cloud" s={15} /> Publish to Google Drive</button>
+      </>
+    );
+  }
+  return (
+    <>
+      <div className="row"><span className={`badge ${r.kind === 'drive' ? 'green' : ''}`}>{r.kind === 'drive' ? 'Google Drive' : 'Folder remote'}</span><span className="faint mono ellipsis">{r.kind === 'drive' ? `Version Driver / ${repo.name}` : r.label}</span></div>
+      {r.kind === 'drive' && r.folderId && (
+        <button className="btn" style={{ alignSelf: 'flex-start' }} onClick={() => window.open(`https://drive.google.com/drive/folders/${r.folderId}`, '_blank')}><Icon n="link" s={14} /> Open in Google Drive</button>
+      )}
+      <div className="menu-sep" />
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div style={{ maxWidth: 360 }}>
+          <div style={{ fontWeight: 550 }}>{r.kind === 'drive' ? 'Delete from Google Drive' : 'Disconnect remote'}</div>
+          <div className="faint" style={{ fontSize: 12 }}>
+            {r.kind === 'drive'
+              ? 'Moves the repository folder to your Drive trash (restorable for 30 days) and disconnects it. Your computer keeps its full history. Teammates lose access.'
+              : 'Disconnects this folder. Nothing in it is deleted.'}
+          </div>
+        </div>
+        <button className="btn danger" onClick={() => s.openDialog({
+          t: 'confirm', title: r.kind === 'drive' ? 'Delete from Google Drive?' : 'Disconnect remote?', danger: true,
+          confirmLabel: r.kind === 'drive' ? 'Move to Drive trash' : 'Disconnect',
+          body: r.kind === 'drive'
+            ? `The \u201c${repo.name}\u201d folder in your Google Drive goes to the trash and teammates lose access. You keep everything on this computer and can publish again later.`
+            : 'The folder stays as it is; this repository just stops syncing with it.',
+          run: async () => { await window.vd.deleteRemote(repo.id); await s.reloadRepos(); await s.refresh(); s.toast({ kind: 'ok', text: r.kind === 'drive' ? 'Moved to your Drive trash' : 'Disconnected' }); },
+        })}><Icon n="trash" s={14} /> {r.kind === 'drive' ? 'Delete…' : 'Disconnect'}</button>
+      </div>
+      <span hidden>{String(onClose)}</span>
+    </>
   );
 }

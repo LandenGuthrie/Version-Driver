@@ -11,13 +11,15 @@ export function Toolbar() {
       <Popover
         trigger={(open, toggle) => (
           <button className="btn" onClick={toggle} aria-expanded={open} style={{ minWidth: 150, justifyContent: 'space-between' }}>
-            <span className="row"><Icon n="folder" s={15} /><b className="ellipsis" style={{ maxWidth: 160 }}>{repo?.name ?? 'Select repository'}</b></span>
+            <span className="row"><Icon n="folder" s={15} /><b className="ellipsis" style={{ maxWidth: 160 }}>{repo?.name ?? 'Main menu'}</b></span>
             <Icon n="chevron" s={14} />
           </button>
         )}
       >
         {(close) => (
           <>
+            <button className="menu-item" onClick={() => { close(); void s.selectRepo(null); }}><Icon n="history" s={15} />Main menu</button>
+            <div className="menu-sep" />
             <div className="menu-head">Repositories</div>
             {s.repos.map((r) => (
               <button key={r.id} className="menu-item" onClick={() => { close(); void s.selectRepo(r.id); }}>
@@ -28,8 +30,6 @@ export function Toolbar() {
             ))}
             {s.repos.length === 0 && <div className="muted" style={{ padding: '6px 9px' }}>No repositories yet</div>}
             <div className="menu-sep" />
-            {repo && <button className="menu-item" onClick={() => { close(); s.openDialog({ t: 'ignore' }); }}><Icon n="eye" s={15} />Ignore files…</button>}
-            {repo && <button className="menu-item danger" onClick={() => { close(); s.openDialog({ t: 'removeRepo' }); }}><Icon n="trash" s={15} />Remove “{repo.name}”…</button>}
             <button className="menu-item" onClick={() => { close(); s.openDialog({ t: 'newRepo' }); }}><Icon n="plus" s={15} />New repository…</button>
             <button className="menu-item" onClick={() => { close(); s.openDialog({ t: 'clone' }); }}><Icon n="download" s={15} />Clone or join…</button>
           </>
@@ -48,6 +48,11 @@ export function Toolbar() {
       {repo && (
         <button className="btn" onClick={() => (repo.remote ? s.openDialog({ t: 'share' }) : s.openDialog({ t: 'publish' }))}>
           <Icon n="users" s={15} /> Share
+        </button>
+      )}
+      {repo && (
+        <button className="btn icon" title="Repository settings" aria-label="Repository settings" onClick={() => s.openDialog({ t: 'repoSettings' })}>
+          <Icon n="settings" s={16} />
         </button>
       )}
       {repo && <SyncButton />}

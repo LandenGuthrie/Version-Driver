@@ -167,6 +167,50 @@ export class Manager {
     };
   }
 
+  /** Move the Drive folder to the trash. No-op for folder remotes, which are never deleted. */
+  private async trashDriveCopy(id: string) {
+    const c = await this.ctx(id);
+    if (c.repo.config.remotes.origin?.kind !== 'drive') return;
+    await this.backendFor(c);
+    await c.drive!.trashRoot();
+  }
+
+  async deleteRemote(id: string) {
+    await this.trashDriveCopy(id);
+    const c = await this.ctx(id);
+    await this.deactivate(id);
+    delete c.repo.config.remotes.origin;
+    await c.repo.saveConfig();
+    c.backend = undefined;
+    c.drive = undefined;
+    c.client = undefined;
+    await c.repo.setRemoteTips('origin', {});
+    this.emit('repo:changed', { repoId: id });
+    return this.summary(id);
+  }
+
+  async renameRepo(id: string, name: string) {
+    const clean = name.trim();
+    if (!clean) throw new Error('A repository needs a name');
+    const c = await this.ctx(id);
+    c.repo.config.name = clean;
+    await c.repo.saveConfig();
+    // Keep the shared copy's name in step so teammates see the new name too (best effort).
+    try {
+      if (c.repo.config.remotes.origin) {
+        const backend = await this.backendFor(c);
+        if (backend) {
+          const meta = await readRepoMeta(backend);
+          await backend.put('repo.json', new TextEncoder().encode(JSON.stringify({ ...meta, name: clean })));
+          await c.drive?.renameRoot(clean);
+        }
+      }
+    } catch {
+      /* offline: the local rename still applies */
+    }
+    return this.summary(id);
+  }
+
   async listRepos(): Promise<RepoSummary[]> {
     const out: RepoSummary[] = [];
     for (const r of this.registry) {
@@ -179,7 +223,7 @@ export class Manager {
     return out;
   }
 
-  async createRepo(a: { dir: string; name: string; level?: 'fast' | 'balanced' | 'max'; ignore?: string[] }) {
+  async createRepo(a: { dir: string; name: string; level?: 'fast' | 'balanced' | 'max'; ignore?: string[]; initialCommit?: 'all' | 'ignore-only' }) {
     await mkdir(a.dir, { recursive: true });
     const { repo, repoKey } = await Repository.init(a.dir, { name: a.name, user: this.me(), level: a.level });
     this.saveKeys(repo.config.repoId, new Map([[1, repoKey]]));
@@ -188,9 +232,14 @@ export class Manager {
       for (const id of a.ignore) text = setPreset(text, id, true);
       await writeFile(join(repo.dir, '.vdignore'), text);
     }
-    // A first commit gives the repo a starting point to publish. Only the ignore rules go in; the
-    // project's own files stay as ordinary changes for the user to review.
-    await repo.commit({ summary: 'Initial commit', description: 'Added .vdignore', paths: ['.vdignore'] });
+    // The first commit gives the repo a starting point to publish. For an existing project it saves
+    // everything that isn't ignored; for a fresh folder there is only the ignore file to save.
+    const all = a.initialCommit === 'all';
+    await repo.commit({
+      summary: 'Initial commit',
+      description: all ? 'Saved the project as it was when Version Driver started tracking it' : 'Added .vdignore',
+      paths: all ? undefined : ['.vdignore'],
+    });
     return this.register(repo);
   }
 
@@ -200,8 +249,10 @@ export class Manager {
     return this.register(repo);
   }
 
-  async removeRepo(id: string, opts: { deleteHistory?: boolean } = {}) {
+  async removeRepo(id: string, opts: { deleteHistory?: boolean; deleteRemote?: boolean } = {}) {
     const dir = this.registry.find((r) => r.id === id)?.dir;
+    // Delete the Drive copy first: if that fails (offline, signed out) nothing local has changed yet.
+    if (opts.deleteRemote) await this.trashDriveCopy(id);
     await this.deactivate(id);
     this.ctxs.delete(id);
     this.registry = this.registry.filter((r) => r.id !== id);
@@ -595,20 +646,24 @@ export class Manager {
   async syncState(id: string): Promise<SyncState> {
     const c = await this.ctx(id);
     const branch = await c.repo.currentBranch();
-    if (!c.repo.config.remotes.origin || !branch) return { hasRemote: !!c.repo.config.remotes.origin, branch, ahead: 0, behind: 0 };
+    if (!c.repo.config.remotes.origin || !branch) return { hasRemote: !!c.repo.config.remotes.origin, branch, ahead: 0, behind: 0, unpushed: [] };
     const tips = await c.repo.remoteTips('origin');
     const local = await c.repo.branchTip(branch);
     const remoteTip = tips[branch];
     let ahead = 0;
     let behind = 0;
-    if (local && !remoteTip) ahead = (await c.repo.ancestors(local)).size;
-    else if (local && remoteTip && (await c.repo.store.has(remoteTip))) {
+    let unpushed: string[] = [];
+    if (local && !remoteTip) {
+      unpushed = [...(await c.repo.ancestors(local))];
+      ahead = unpushed.length;
+    } else if (local && remoteTip && (await c.repo.store.has(remoteTip))) {
       const a = await c.repo.ancestors(local);
       const b = await c.repo.ancestors(remoteTip);
-      ahead = [...a].filter((x) => !b.has(x)).length;
+      unpushed = [...a].filter((x) => !b.has(x));
+      ahead = unpushed.length;
       behind = [...b].filter((x) => !a.has(x)).length;
     }
-    return { hasRemote: true, branch, ahead, behind };
+    return { hasRemote: true, branch, ahead, behind, unpushed };
   }
 
   async fetch(id: string) {

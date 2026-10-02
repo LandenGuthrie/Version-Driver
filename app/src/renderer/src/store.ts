@@ -12,6 +12,7 @@ export type Dialog =
   | { t: 'settings' }
   | { t: 'ignore' }
   | { t: 'removeRepo' }
+  | { t: 'repoSettings'; section?: 'general' | 'ignore' | 'storage' | 'remote' }
   | { t: 'conflict'; op: 'merge' | 'revert'; ref: string; paths: string[] }
   | { t: 'confirm'; title: string; body: string; confirmLabel: string; danger?: boolean; run: () => Promise<void> };
 
@@ -55,6 +56,7 @@ interface S {
   commitFile: string | null;
   branches: BranchDTO[];
   sync: SyncState;
+  sidebarWidth: number;
   online: { id: string; name: string; branch?: string }[];
   progress: Progress | null;
   busy: string | null;
@@ -71,6 +73,7 @@ interface S {
   selectRepo(id: string | null): Promise<void>;
   reloadRepos(): Promise<void>;
   refresh(): Promise<void>;
+  setSidebarWidth(w: number): void;
   setTab(t: 'changes' | 'history'): void;
   toggleChecked(path: string): void;
   setAllChecked(on: boolean): void;
@@ -107,7 +110,8 @@ export const useStore = create<S>((set, get) => ({
   commitFiles: [],
   commitFile: null,
   branches: [],
-  sync: { hasRemote: false, branch: null, ahead: 0, behind: 0 },
+  sync: { hasRemote: false, branch: null, ahead: 0, behind: 0, unpushed: [] },
+  sidebarWidth: Math.min(640, Math.max(260, Number(ls.get('vd.sidebarW')) || 340)),
   online: [],
   progress: null,
   busy: null,
@@ -148,11 +152,7 @@ export const useStore = create<S>((set, get) => ({
     vd.on('deeplink', ({ url }) => get().openDialog({ t: 'clone', link: url }));
     vd.on('focus', ({ focused }) => focused && get().repoId && void get().refresh());
 
-    if (profile) {
-      const last = ls.get('vd.repo');
-      const pick = repos.find((r) => r.id === last) ?? repos[0];
-      if (pick) await get().selectRepo(pick.id);
-    }
+    // The app opens on the main menu (the repository list); picking a project opens it.
   },
 
   async signIn() {
@@ -178,7 +178,7 @@ export const useStore = create<S>((set, get) => ({
     set({
       repoId: id, changes: [], commits: [], branches: [], unchecked: new Set(), focusPath: null, selectedCommit: null,
       commitFiles: [], commitFile: null, online: [], summary: '', description: '', tab: 'changes',
-      sync: { hasRemote: false, branch: null, ahead: 0, behind: 0 },
+      sync: { hasRemote: false, branch: null, ahead: 0, behind: 0, unpushed: [] },
     });
     if (!id) return;
     await get().guard('Opening repository', async () => {
@@ -206,6 +206,12 @@ export const useStore = create<S>((set, get) => ({
     } catch (e: any) {
       get().toast({ kind: 'error', text: e.message });
     }
+  },
+
+  setSidebarWidth(w) {
+    const width = Math.min(640, Math.max(260, Math.round(w)));
+    ls.set('vd.sidebarW', String(width));
+    set({ sidebarWidth: width });
   },
 
   setTab(tab) {

@@ -6,9 +6,11 @@ import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
 import { Viewer } from './components/Viewer';
 import { Dialogs } from './components/Dialogs';
+import { Home } from './components/Home';
+import { Resizer } from './components/Resizer';
 
 export function App() {
-  const { ready, profile, repoId, repos, boot, toasts, dismissToast, progress, openDialog, busy } = useStore();
+  const { ready, profile, repoId, boot, toasts, dismissToast, progress, busy, sidebarWidth } = useStore();
   useEffect(() => void boot(), [boot]);
 
   if (!ready) return <div className="welcome"><div className="logo"><Logo s={30} /></div></div>;
@@ -20,18 +22,11 @@ export function App() {
       {progress && progress.total > 0 && <div className="progressbar"><i style={{ width: `${(progress.done / progress.total) * 100}%` }} /></div>}
       <Toolbar />
       {noRepo ? (
-        <div className="empty" style={{ margin: 'auto' }}>
-          <div className="logo" style={{ marginBottom: 6 }}><Logo s={28} /></div>
-          <h3 style={{ fontSize: 20 }}>{repos.length ? 'Choose a repository' : `Welcome, ${profile.name.split(' ')[0]}`}</h3>
-          <span>{repos.length ? 'Pick one from the menu above, or start another.' : 'Create your first repository, join a teammate’s, or add a folder you already have.'}</span>
-          <div className="row" style={{ marginTop: 8 }}>
-            <button className="btn primary" onClick={() => openDialog({ t: 'newRepo' })}><Icon n="plus" s={15} /> Create repository</button>
-            <button className="btn" onClick={() => openDialog({ t: 'clone' })}><Icon n="download" s={15} /> Clone or join</button>
-          </div>
-        </div>
+        <Home />
       ) : (
-        <div className="main">
+        <div className="main" style={{ ['--sidebar-w' as string]: `${sidebarWidth}px` }}>
           <Sidebar />
+          <Resizer />
           <Viewer />
         </div>
       )}

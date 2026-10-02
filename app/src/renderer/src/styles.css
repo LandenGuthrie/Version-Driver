@@ -349,3 +349,66 @@ input[type='range'] { accent-color: var(--accent); }
   background: var(--sidebar-bg, var(--surface)); border: 1px solid var(--border); border-radius: 14px; overflow: hidden;
   box-shadow: 0 8px 28px rgba(0, 0, 0, .16);
 }
+
+/* ================= glass: translucent, blurred surfaces ================= */
+:root {
+  --glass: color-mix(in srgb, var(--surface) 56%, transparent);
+  --glass-strong: color-mix(in srgb, var(--surface) 76%, transparent);
+  --scrim: color-mix(in srgb, var(--bg) 50%, transparent);
+}
+.floating .sidebar, .floating .content {
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(22px) saturate(1.15); backdrop-filter: blur(22px) saturate(1.15);
+}
+.floating .tabs, .floating .list-head, .floating .commit-box, .floating .viewer-head, .floating .commit-bar { background: transparent; }
+.popover { background: var(--glass-strong); backdrop-filter: blur(24px) saturate(1.2); }
+.toast { background: var(--glass-strong); backdrop-filter: blur(20px) saturate(1.2); }
+.btn { background: color-mix(in srgb, var(--raised) 62%, transparent); }
+.field { background: color-mix(in srgb, var(--bg) 42%, transparent); }
+.field.plain { height: 26px; border: 0; background: transparent; padding: 0; box-shadow: none; }
+.seg { background: color-mix(in srgb, var(--raised) 60%, transparent); }
+.chip { background: transparent; }
+.google-btn { background: color-mix(in srgb, var(--raised) 62%, transparent); backdrop-filter: blur(14px); }
+
+/* dialogs have no container of their own: just the content floating over a blurred, dimmed backdrop */
+.scrim { background: var(--scrim); backdrop-filter: blur(18px) saturate(1.1); }
+.modal { background: transparent; border: 0; box-shadow: none; }
+.modal-head h2 { font-size: 18px; }
+
+/* ================= layout: draggable sidebar ================= */
+.main { display: grid; grid-template-columns: var(--sidebar-w, 340px) 10px minmax(0, 1fr); gap: 0; min-height: 0; }
+.floating .main { padding: 0 10px 10px; }
+.resizer { cursor: col-resize; display: grid; place-items: center; outline: none; touch-action: none; }
+.resizer i { width: 3px; height: 44px; border-radius: 3px; background: transparent; transition: background .12s; }
+.resizer:hover i, .resizer:focus-visible i, body[style*='col-resize'] .resizer i { background: var(--accent); }
+.hsplit { height: 10px; flex: none; cursor: row-resize; display: grid; place-items: center; touch-action: none; }
+.hsplit i { width: 44px; height: 3px; border-radius: 3px; background: transparent; transition: background .12s; }
+.hsplit:hover i { background: var(--accent); }
+
+/* ================= history: uncommitted + not pushed ================= */
+.commit.pending { cursor: pointer; }
+.commit.pending .title { color: var(--accent); }
+.commit.pending .rail i { border-style: dashed; border-color: var(--accent); background: transparent; }
+.commit.pending:hover { background: var(--accent-soft); }
+
+/* ================= main menu ================= */
+.home { flex: 1; min-height: 0; overflow: auto; display: grid; place-items: start center; padding: 44px 24px; }
+.home-inner { width: min(660px, 100%); display: flex; flex-direction: column; gap: 30px; }
+.home-hero { text-align: center; display: flex; flex-direction: column; gap: 12px; align-items: center; }
+.home-hero h1 { margin: 6px 0 0; font-size: 28px; letter-spacing: -.02em; }
+.home-hero p { margin: 0; }
+.home-card {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; margin-bottom: 8px; text-align: left;
+  border-radius: 12px; border: 1px solid var(--border); background: var(--glass); backdrop-filter: blur(18px) saturate(1.15);
+  transition: border-color .12s, background .12s;
+}
+.home-card:hover { border-color: var(--border-strong); background: var(--glass-strong); }
+.home-icon { width: 38px; height: 38px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; flex: none; }
+
+/* ================= repository settings ================= */
+.settings-layout { display: grid; grid-template-columns: 176px minmax(0, 1fr); gap: 22px; min-height: 340px; }
+.settings-nav { display: flex; flex-direction: column; gap: 2px; }
+.settings-nav button { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border: 0; background: transparent; border-radius: 8px; color: var(--muted); text-align: left; }
+.settings-nav button:hover { color: var(--text); background: var(--hover); }
+.settings-nav button.on { color: var(--text); background: var(--active); }
+.settings-body { display: flex; flex-direction: column; gap: 16px; min-width: 0; }

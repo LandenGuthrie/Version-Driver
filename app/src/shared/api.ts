@@ -71,6 +71,8 @@ export interface SyncState {
   branch: string | null;
   ahead: number;
   behind: number;
+  /** commit ids that exist locally but haven't been pushed yet */
+  unpushed: string[];
 }
 
 export interface BranchDTO {
@@ -163,10 +165,14 @@ export interface VdApi {
   // repositories
   listRepos(): Promise<RepoSummary[]>;
   pickFolder(): Promise<string | null>;
-  createRepo(a: { dir: string; name: string; level?: 'fast' | 'balanced' | 'max'; ignore?: string[] }): Promise<RepoSummary>;
+  /** initialCommit 'all' saves every (non-ignored) file in the folder as the first version; 'ignore-only' just the ignore rules. */
+  createRepo(a: { dir: string; name: string; level?: 'fast' | 'balanced' | 'max'; ignore?: string[]; initialCommit?: 'all' | 'ignore-only' }): Promise<RepoSummary>;
+  renameRepo(id: string, name: string): Promise<RepoSummary>;
+  /** Move the repository's Google Drive folder to the Drive trash and detach the remote. */
+  deleteRemote(id: string): Promise<RepoSummary>;
   addExisting(dir: string): Promise<RepoSummary>;
   /** Forget a repository. Project files are never deleted; deleteHistory also removes the .vdriver folder. */
-  removeRepo(id: string, opts?: { deleteHistory?: boolean }): Promise<void>;
+  removeRepo(id: string, opts?: { deleteHistory?: boolean; deleteRemote?: boolean }): Promise<void>;
   setRemoteFolder(id: string, path: string): Promise<RepoSummary>;
   publishToDrive(id: string): Promise<RepoSummary>;
   listDriveRepos(): Promise<{ folderId: string; name: string }[]>;
