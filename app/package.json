@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "dist": "electron-vite build && electron-builder -c.directories.output=../../installers",
     "pack": "electron-vite build && electron-builder --win --dir -c.directories.output=../../installers",
-    "release": "electron-vite build && electron-builder --publish always"
+    "release": "electron-vite build && electron-builder --publish always",
+    "e2e": "electron-vite build && node tools/e2e-drive.cjs && node tools/e2e-ui.cjs"
   },
   "dependencies": {
     "@vd/core": "*",
@@ -39,7 +40,7 @@
   "build": {
     "appId": "com.versiondriver.app",
     "productName": "Version Driver",
-    "copyright": "Copyright \u00a9 Landen Guthrie",
+    "copyright": "Copyright © Landen Guthrie",
     "directories": {
       "output": "release",
       "buildResources": "build"

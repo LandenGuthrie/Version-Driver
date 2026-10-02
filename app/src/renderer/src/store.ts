@@ -5,8 +5,6 @@ import type { BranchDTO, ChangeDTO, CommitDTO, Profile, Progress, RepoSummary, S
 export type Dialog =
   | { t: 'newRepo' }
   | { t: 'clone'; link?: string; folderId?: string; name?: string }
-  | { t: 'vaultCreate' }
-  | { t: 'vaultUnlock' }
   | { t: 'share' }
   | { t: 'storage' }
   | { t: 'publish' }
@@ -65,6 +63,9 @@ interface S {
   syncing: Record<string, string>;
   syncProgress: Record<string, Progress>;
   vaultWaiter: ((ok: boolean) => void) | null;
+  /** The recovery-password dialog opens ON TOP of whatever dialog is open, so it never replaces it. */
+  vaultDialog: 'create' | 'unlock' | null;
+  vaultReason: string | null;
   busy: string | null;
   summary: string;
   description: string;
@@ -99,7 +100,7 @@ interface S {
   /** Make sure this computer can use the account's repositories. 'create' also asks for a recovery password if none exists. */
   /** Publish a repository to Google Drive (asks for a recovery password first if the account has none). */
   publish(id: string): Promise<boolean>;
-  ensureVault(need: 'create' | 'unlock'): Promise<boolean>;
+  ensureVault(need: 'create' | 'unlock', reason?: string): Promise<boolean>;
   finishVault(ok: boolean): void;
 }
 
@@ -128,6 +129,8 @@ export const useStore = create<S>((set, get) => ({
   syncing: {},
   syncProgress: {},
   vaultWaiter: null,
+  vaultDialog: null,
+  vaultReason: null,
   busy: null,
   summary: '',
   description: '',
@@ -364,17 +367,17 @@ export const useStore = create<S>((set, get) => ({
     }
   },
 
-  async ensureVault(need) {
+  async ensureVault(need, reason) {
     const st = await window.vd.vaultStatus();
     if (st === 'ready' || st === 'unavailable' || (st === 'none' && need === 'unlock')) return true;
     return new Promise<boolean>((resolve) => {
-      set({ vaultWaiter: resolve, dialog: { t: st === 'none' ? 'vaultCreate' : 'vaultUnlock' } });
+      set({ vaultWaiter: resolve, vaultDialog: st === 'none' ? 'create' : 'unlock', vaultReason: reason ?? null });
     });
   },
 
   finishVault(ok) {
     const w = get().vaultWaiter;
-    set({ vaultWaiter: null, dialog: null });
+    set({ vaultWaiter: null, vaultDialog: null, vaultReason: null });
     w?.(ok);
   },
 

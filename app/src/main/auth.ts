@@ -138,6 +138,7 @@ async function tokenRequest(extra: Record<string, string>): Promise<Tokens> {
 
 /** A valid access token, refreshing silently when needed. */
 export async function getAccessToken(): Promise<string> {
+  if (process.env.VD_FAKE_TOKEN) return process.env.VD_FAKE_TOKEN; // tests against the fake Drive only
   if (access && access.expiresAt > Date.now() + 60_000) return access.token;
   const refresh = getSecret('google:refresh');
   if (!refresh) throw Object.assign(new Error('Not signed in to Google'), { code: 'not_signed_in' });

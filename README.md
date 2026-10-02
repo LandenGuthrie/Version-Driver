@@ -55,3 +55,7 @@ check for new releases automatically and offer a restart when one has downloaded
 
 Builds are unsigned, so Windows SmartScreen ("More info → Run anyway") and macOS Gatekeeper
 (right-click → Open) will warn on first launch.
+
+## Testing the Google Drive flows without Google
+
+`npm run e2e -w app` runs the real app against a local fake Drive (`app/tools/fake-drive.cjs`) with two simulated computers: password, publish, unlock, clone, reconnect, rename and delete, plus a pass that clicks through the screens. No Google account is used.

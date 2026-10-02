@@ -182,11 +182,20 @@ export function ContextMenu({ at, items, onClose }: { at: { x: number; y: number
   );
 }
 
+const modalStack: symbol[] = [];
+
 export function Modal({ title, onClose, children, footer, wide }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
   useEffect(() => {
-    const k = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const me = Symbol('modal');
+    modalStack.push(me);
+    // Escape closes only the dialog on top, so a dialog opened over another one doesn't take it down too
+    const k = (e: KeyboardEvent) => e.key === 'Escape' && modalStack[modalStack.length - 1] === me && onClose();
     window.addEventListener('keydown', k);
-    return () => window.removeEventListener('keydown', k);
+    return () => {
+      window.removeEventListener('keydown', k);
+      const i = modalStack.indexOf(me);
+      if (i >= 0) modalStack.splice(i, 1);
+    };
   }, [onClose]);
   return (
     <div className="scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>

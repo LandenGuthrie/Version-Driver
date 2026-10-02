@@ -6,13 +6,22 @@ import { DEFAULT_THEME, PRESETS, loadWallpaper } from '../theme';
 
 export function Dialogs() {
   const d = useStore((s) => s.dialog);
+  const vault = useStore((s) => s.vaultDialog);
   const close = () => useStore.getState().openDialog(null);
-  if (!d) return null;
+  const closeVault = () => useStore.getState().finishVault(false);
+  return (
+    <>
+      {d && renderDialog(d, close)}
+      {vault === 'create' && <VaultCreate onClose={closeVault} />}
+      {vault === 'unlock' && <VaultUnlock onClose={closeVault} />}
+    </>
+  );
+}
+
+function renderDialog(d: NonNullable<ReturnType<typeof useStore.getState>['dialog']>, close: () => void) {
   switch (d.t) {
     case 'newRepo': return <NewRepo onClose={close} />;
     case 'clone': return <Clone onClose={close} link={d.link} presetId={d.folderId} presetName={d.name} />;
-    case 'vaultCreate': return <VaultCreate onClose={() => useStore.getState().finishVault(false)} />;
-    case 'vaultUnlock': return <VaultUnlock onClose={() => useStore.getState().finishVault(false)} />;
     case 'share': return <Share onClose={close} />;
     case 'storage': return <Storage onClose={close} />;
     case 'publish': return <Publish onClose={close} />;
@@ -152,6 +161,7 @@ function Clone({ onClose, link: initial, presetId, presetName }: { onClose: () =
   const [pending, setPending] = useState(false);
   const [keep, setKeep] = useState(false);
   const [keepTouched, setKeepTouched] = useState(false);
+  const [notice, setNotice] = useState('');
 
   useEffect(() => {
     if (tab === 'drive' && list === null) window.vd.listDriveRepos().then(setList).catch(() => setList([]));
@@ -172,12 +182,17 @@ function Clone({ onClose, link: initial, presetId, presetName }: { onClose: () =
   const go = async () => {
     setBusy(true);
     setPending(false);
+    setNotice('');
     try {
       let r;
       if (tab === 'existing') r = await window.vd.addExisting(dirParent);
       else {
         // an account that was set up on another computer must be unlocked here before its repositories can be opened
-        if (!(await s.ensureVault('unlock'))) { setBusy(false); return; }
+        if (!(await s.ensureVault('unlock', 'To clone this project onto this computer, enter the recovery password you set up on your other computer.'))) {
+          setNotice('Cloning needs your recovery password. Press Clone to try again.');
+          setBusy(false);
+          return;
+        }
         r = await window.vd.cloneFromDrive({ folderId: folderId!, dir: target(repoName || 'repository'), keepFiles: keep });
       }
       await s.reloadRepos();
@@ -202,7 +217,10 @@ function Clone({ onClose, link: initial, presetId, presetName }: { onClose: () =
             await s.selectRepo(r.id);
           },
         });
-      } else s.toast({ kind: 'error', text: e.message });
+      } else {
+        setNotice(e.message);
+        s.toast({ kind: 'error', text: e.message });
+      }
     }
   };
 
@@ -260,6 +278,8 @@ function Clone({ onClose, link: initial, presetId, presetName }: { onClose: () =
         {tab !== 'existing' && dirParent && <div className="faint mono" style={{ marginTop: 6, fontSize: 11.5 }}>{target(repoName || 'repository')}</div>}
       </div>
 
+      {busy && <div className="row muted"><span className="spinner" /> Downloading your project… this can take a moment for large projects.</div>}
+      {notice && !busy && <div className="badge orange" style={{ whiteSpace: 'normal', padding: '8px 12px', borderRadius: 10, display: 'block', lineHeight: 1.5 }}>{notice}</div>}
       {pending && (
         <div className="badge orange" style={{ whiteSpace: 'normal', padding: '10px 12px', borderRadius: 10, display: 'block', lineHeight: 1.5 }}>
           <b>Access requested.</b> An admin needs to approve you in the Share dialog. Press Clone again once they have. Your safety code is shown to them so they can verify it's you.
@@ -909,6 +929,7 @@ function VaultCreate({ onClose }: { onClose: () => void }) {
 
 function VaultUnlock({ onClose }: { onClose: () => void }) {
   const s = useStore();
+  const reason = useStore((x) => x.vaultReason);
   const [pw, setPw] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -920,12 +941,12 @@ function VaultUnlock({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="Unlock your projects" onClose={onClose} footer={
       <>
-        <button className="btn" onClick={onClose}>Not now</button>
+        <button className="btn" onClick={onClose}>Cancel</button>
         <button className="btn primary" disabled={!pw || busy} onClick={() => void go()}>{busy && <span className="spinner" />}Unlock</button>
       </>
     }>
       <p className="muted" style={{ margin: 0, lineHeight: 1.55 }}>
-        This Google account already has projects in Version Driver. Enter the recovery password you set up on your other computer to open them here.
+        {reason ?? 'This Google account already has projects in Version Driver. Enter the recovery password you set up on your other computer to open them here.'}
       </p>
       <div><label className="label">Recovery password</label><input className="field" type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus onKeyDown={(e) => e.key === 'Enter' && pw && !busy && void go()} /></div>
       {err && <div className="badge red">{err}</div>}

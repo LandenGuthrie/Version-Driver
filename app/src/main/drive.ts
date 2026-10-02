@@ -4,8 +4,9 @@
 // has()/list() never hit the network.
 import type { Backend, BlobInfo } from '@vd/core';
 
-const API = 'https://www.googleapis.com/drive/v3';
-const UPLOAD = 'https://www.googleapis.com/upload/drive/v3';
+// The two env overrides exist so the app can be tested against a local fake Drive (app/tools/fake-drive.cjs).
+const API = process.env.VD_DRIVE_API ?? 'https://www.googleapis.com/drive/v3';
+const UPLOAD = process.env.VD_DRIVE_UPLOAD ?? 'https://www.googleapis.com/upload/drive/v3';
 const FOLDER = 'application/vnd.google-apps.folder';
 const FIELDS = 'id,name,size,createdTime,modifiedTime,parents,mimeType,trashed';
 const RESUMABLE_OVER = 5 * 1024 * 1024;
