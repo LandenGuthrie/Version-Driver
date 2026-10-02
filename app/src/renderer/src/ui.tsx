@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import logoUrl from './assets/logo.png';
 
 // ---- icons (24px grid, 1.8 stroke) ---------------------------------------------------
 
@@ -54,16 +55,9 @@ export function Icon({ n, s = 16, className, style }: { n: keyof typeof P | stri
   );
 }
 
-/** Mark: a block with a notch, and a tilted block whose peg is about to drop into it. */
-export function Logo({ s = 28 }: { s?: number }) {
-  return (
-    <svg width={s} height={s * 0.739} viewBox="-12.0 -193.6 381.0 281.6" aria-hidden>
-      <path d="M8 0H128.0V22a6 6 0 0 0 6 6h32a6 6 0 0 0 6-6V0H292a8 8 0 0 1 8 8V68a8 8 0 0 1 -8 8H8a8 8 0 0 1 -8-8V8a8 8 0 0 1 8-8Z" fill="var(--accent)" />
-      <g transform="translate(247.09 -114.71) rotate(20)" fill="color-mix(in srgb, var(--accent) 60%, white)">
-        <rect x="-105.0" y="-33.0" width="210" height="66" rx="8"/><rect x="-69.0" y="29.0" width="34" height="28" rx="5"/>
-      </g>
-    </svg>
-  );
+/** The app icon. Sized by its container (see .logo in styles.css). */
+export function Logo({ alt = 'Version Driver' }: { s?: number; alt?: string }) {
+  return <img src={logoUrl} alt={alt} draggable={false} style={{ width: '100%', height: '100%', display: 'block' }} />;
 }
 
 export function GoogleG({ s = 18 }: { s?: number }) {
