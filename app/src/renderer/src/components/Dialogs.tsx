@@ -150,14 +150,24 @@ function Clone({ onClose, link: initial, presetId, presetName }: { onClose: () =
   const [pick, setPick] = useState<string | null>(presetId ?? null);
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState(false);
+  const [keep, setKeep] = useState(false);
+  const [keepTouched, setKeepTouched] = useState(false);
 
   useEffect(() => {
     if (tab === 'drive' && list === null) window.vd.listDriveRepos().then(setList).catch(() => setList([]));
   }, [tab, list]);
 
-  const target = (n: string) => (dirParent ? `${dirParent.replace(/[\\/]$/, '')}${dirParent.includes('\\') ? '\\' : '/'}${slug(n)}` : '');
+  const target = (n: string) => (!dirParent ? '' : keep ? dirParent : `${dirParent.replace(/[\\/]$/, '')}${dirParent.includes('\\') ? '\\' : '/'}${slug(n)}`);
   const folderId = tab === 'link' ? parseLink(link) : pick;
   const repoName = tab === 'drive' ? (list?.find((l) => l.folderId === pick)?.name ?? name) : name;
+
+  // If the chosen folder is named like the repository, it is almost certainly that project: suggest reconnecting it.
+  useEffect(() => {
+    if (keepTouched || !dirParent || !repoName) return;
+    const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const folder = dirParent.split(/[\\/]/).filter(Boolean).pop() ?? '';
+    setKeep(norm(folder) === norm(repoName));
+  }, [dirParent, repoName, keepTouched]);
 
   const go = async () => {
     setBusy(true);
@@ -168,15 +178,31 @@ function Clone({ onClose, link: initial, presetId, presetName }: { onClose: () =
       else {
         // an account that was set up on another computer must be unlocked here before its repositories can be opened
         if (!(await s.ensureVault('unlock'))) { setBusy(false); return; }
-        r = await window.vd.cloneFromDrive({ folderId: folderId!, dir: target(repoName || 'repository') });
+        r = await window.vd.cloneFromDrive({ folderId: folderId!, dir: target(repoName || 'repository'), keepFiles: keep });
       }
       await s.reloadRepos();
       await s.selectRepo(r.id);
       s.openDialog(null);
     } catch (e: any) {
-      if (e.code === 'pending') setPending(true);
-      else s.toast({ kind: 'error', text: e.message });
       setBusy(false);
+      if (e.code === 'pending') setPending(true);
+      else if (e.code === 'not_tracked') {
+        // the folder lost its hidden history: reconnect it to the Drive copy instead
+        s.toast({ kind: 'info', text: 'That folder has no history on this computer. Pick the project from your Drive and tick “This folder already has my project files”.' });
+        setTab('drive');
+        setKeepTouched(true);
+        setKeep(true);
+      } else if (e.code === 'has_history') {
+        s.openDialog({
+          t: 'confirm', title: 'Replace the old history in this folder?', danger: true, confirmLabel: 'Delete old history and continue',
+          body: 'This folder still has the hidden \u201c.vdriver\u201d history from an earlier setup, and its encryption key is gone, so it can\u2019t be opened any more. Delete it and reconnect to the Drive copy? Your project files are not touched.',
+          run: async () => {
+            const r = await window.vd.cloneFromDrive({ folderId: folderId!, dir: target(repoName || 'repository'), keepFiles: keep, replaceOldHistory: true });
+            await s.reloadRepos();
+            await s.selectRepo(r.id);
+          },
+        });
+      } else s.toast({ kind: 'error', text: e.message });
     }
   };
 
@@ -219,8 +245,17 @@ function Clone({ onClose, link: initial, presetId, presetName }: { onClose: () =
 
       {tab === 'existing' && <div className="faint">Add a project folder that Version Driver already tracks on this computer, for example after removing it from the app.</div>}
 
+      {tab !== 'existing' && (
+        <label className="row" style={{ alignItems: 'flex-start', cursor: 'pointer' }}>
+          <input type="checkbox" className="check" style={{ marginTop: 2 }} checked={keep} onChange={(e) => { setKeep(e.target.checked); setKeepTouched(true); }} />
+          <span>
+            This folder already has my project files
+            <span className="faint" style={{ display: 'block', fontSize: 12, marginTop: 2 }}>Connects the folder you pick to the Drive copy and leaves your files exactly as they are. Anything that differs from the Drive version shows up as a change you can review.</span>
+          </span>
+        </label>
+      )}
       <div>
-        <label className="label">{tab === 'existing' ? 'Project folder' : 'Clone into'}</label>
+        <label className="label">{tab === 'existing' ? 'Project folder' : keep ? 'Project folder' : 'Clone into'}</label>
         <div className="row"><input className="field" value={dirParent} onChange={(e) => setDirParent(e.target.value)} placeholder="Choose a folder…" /><button className="btn" onClick={async () => { const p = await window.vd.pickFolder(); if (p) setDirParent(p); }}>Browse</button></div>
         {tab !== 'existing' && dirParent && <div className="faint mono" style={{ marginTop: 6, fontSize: 11.5 }}>{target(repoName || 'repository')}</div>}
       </div>

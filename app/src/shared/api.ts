@@ -181,7 +181,8 @@ export interface VdApi {
   vaultCreate(password: string): Promise<void>;
   vaultUnlock(password: string): Promise<void>;
   listDriveRepos(): Promise<{ folderId: string; name: string }[]>;
-  cloneFromDrive(a: { folderId: string; dir: string }): Promise<RepoSummary>;
+  /** keepFiles: connect an existing project folder to the Drive copy without overwriting its files. */
+  cloneFromDrive(a: { folderId: string; dir: string; keepFiles?: boolean; replaceOldHistory?: boolean }): Promise<RepoSummary>;
   cloneFromFolder(a: { path: string; dir: string }): Promise<RepoSummary>;
 
   /** Start live updates (watchers, presence) for the repo being viewed. */

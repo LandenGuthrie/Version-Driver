@@ -295,6 +295,8 @@ export async function cloneRepo(opts: {
   remote: RemoteConfig;
   remoteName?: string;
   withBlobs?: boolean;
+  /** The folder already holds the project's files: keep them as they are and show differences as changes. */
+  keepFiles?: boolean;
   onProgress?: OnProgress;
 }) {
   const meta = await readRepoMeta(opts.backend);
@@ -310,6 +312,9 @@ export async function cloneRepo(opts: {
   await client.fetch(repo, { remote: name, withBlobs: opts.withBlobs, onProgress: opts.onProgress });
   const tips = await repo.remoteTips(name);
   const branch = tips[meta.defaultBranch] ? meta.defaultBranch : Object.keys(tips)[0];
-  if (branch) await repo.materialize(tips[branch]!, branch);
+  if (branch) {
+    if (opts.keepFiles) await repo.adopt(tips[branch]!, branch);
+    else await repo.materialize(tips[branch]!, branch);
+  }
   return { repo, client };
 }

@@ -256,6 +256,9 @@ export class Manager {
   }
 
   async addExisting(dir: string) {
+    if (!(await stat(join(dir, '.vdriver', 'config.json')).catch(() => null))) {
+      throw Object.assign(new Error('This folder has no Version Driver history on this computer. If the project is in your Google Drive, use the \"My Drive\" tab and tick \"This folder already has my project files\" to reconnect it.'), { code: 'not_tracked' });
+    }
     const config = JSON.parse(await readFile(join(dir, '.vdriver', 'config.json'), 'utf8')) as { repoId: string };
     const repo = await Repository.open(dir, this.loadKeys(config.repoId));
     return this.register(repo);
@@ -389,8 +392,24 @@ export class Manager {
     return listRepoFolders(getAccessToken);
   }
 
-  private async cloneWith(backend: Backend, dir: string, remote: Parameters<typeof cloneRepo>[0]['remote']) {
+  private async cloneWith(
+    backend: Backend, dir: string, remote: Parameters<typeof cloneRepo>[0]['remote'],
+    opts: { keepFiles?: boolean; replaceOldHistory?: boolean } = {},
+  ) {
     const me = this.me();
+    // A leftover hidden history folder in the destination has to be dealt with before cloning into it.
+    const vd = join(dir, '.vdriver');
+    const old = await readFile(join(vd, 'config.json'), 'utf8').then((t) => JSON.parse(t) as { repoId: string }).catch(() => null);
+    if (old) {
+      if (getSecret(`repokey:${old.repoId}`) && !opts.replaceOldHistory) {
+        throw Object.assign(new Error('This folder is already a Version Driver project on this computer. Use Clone or join → On this computer to add it back.'), { code: 'has_history_key' });
+      }
+      if (!opts.replaceOldHistory) throw Object.assign(new Error('This folder has old Version Driver history that can no longer be opened.'), { code: 'has_history' });
+      await rm(vd, { recursive: true, force: true });
+      deleteSecret(`repokey:${old.repoId}`);
+      this.registry = this.registry.filter((r) => r.id !== old.repoId);
+      await this.saveRegistry();
+    }
     const members = await listMembers(backend);
     const mine = members.find((m) => m.id === me.id);
     if (!mine) await requestJoin(backend, this.identity, me);
@@ -399,16 +418,16 @@ export class Manager {
     }
     await mkdir(dir, { recursive: true });
     const { repo } = await cloneRepo({
-      backend, dir, identity: this.identity, me, remote,
+      backend, dir, identity: this.identity, me, remote, keepFiles: opts.keepFiles,
       onProgress: (p) => this.emit('progress', { repoId: '', phase: p.phase, done: p.done, total: p.total, bytes: p.bytes }),
     });
     this.saveKeys(repo.config.repoId, repo.keyringEpochs());
     return this.register(repo);
   }
 
-  async cloneFromDrive(a: { folderId: string; dir: string }) {
+  async cloneFromDrive(a: { folderId: string; dir: string; keepFiles?: boolean; replaceOldHistory?: boolean }) {
     const drive = await new DriveBackend({ getToken: getAccessToken, rootFolderId: a.folderId }).init();
-    const summary = await this.cloneWith(drive, a.dir, { kind: 'drive', folderId: a.folderId });
+    const summary = await this.cloneWith(drive, a.dir, { kind: 'drive', folderId: a.folderId }, { keepFiles: a.keepFiles, replaceOldHistory: a.replaceOldHistory });
     const c = await this.ctx(summary.id);
     c.drive = drive;
     c.backend = drive;

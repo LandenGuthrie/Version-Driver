@@ -222,6 +222,12 @@ export class Repository {
     await writeFile(join(this.vd, 'remotes', `${remote}.json`), JSON.stringify(tips));
   }
 
+  /** Point `branch` at `commitId` WITHOUT touching the working files (reconnecting an existing folder). */
+  async adopt(commitId: string, branch: string) {
+    await this.setBranchTip(branch, commitId);
+    await writeFile(join(this.vd, 'HEAD'), `ref: ${branch}`);
+  }
+
   /** First checkout after a clone: write every file of `commitId` and point `branch` at it. */
   async materialize(commitId: string, branch: string) {
     const snap = await this.snapshotOf(commitId);

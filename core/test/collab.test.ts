@@ -167,4 +167,22 @@ describe('sharing + sync', () => {
     watcher.stop();
     expect(seen).toEqual(['bob']);
   });
+
+  it('reconnects a folder that already has the project files, without overwriting them', async () => {
+    const { aliceId: _a, keys } = await setup();
+    await mkdir(bobDir, { recursive: true });
+    await writeFile(join(bobDir, 'readme.txt'), 'my newer local edit');   // differs from the version in the remote
+    await writeFile(join(bobDir, 'mine.txt'), 'only on my disk');
+    const identity = generateIdentity();
+    await requestJoin(backend, identity, B);
+    await approveMember({ backend, adminId: 'alice', repoKeys: keys, memberId: 'bob' });
+    const { repo } = await cloneRepo({ backend, dir: bobDir, identity, me: B, remote: { kind: 'fs', path: remoteDir }, keepFiles: true });
+
+    expect(await readFile(join(bobDir, 'readme.txt'), 'utf8')).toBe('my newer local edit');  // not overwritten
+    expect(await readFile(join(bobDir, 'mine.txt'), 'utf8')).toBe('only on my disk');
+    const changes = (await repo.status()).map((c) => `${c.status}:${c.path}`);
+    expect(changes).toContain('modified:readme.txt');
+    expect(changes).toContain('added:mine.txt');
+    expect((await repo.log()).map((c) => c.summary)).toEqual(['init']);                    // full history came along
+  });
 });
