@@ -17,6 +17,7 @@ export function Dialogs() {
     case 'newBranch': return <NewBranch onClose={close} />;
     case 'settings': return <Settings onClose={close} />;
     case 'ignore': return <IgnoreDialog onClose={close} />;
+    case 'removeRepo': return <RemoveRepo onClose={close} />;
     case 'conflict': return <Conflict onClose={close} {...d} />;
     case 'confirm': return <Confirm onClose={close} {...d} />;
   }
@@ -593,6 +594,47 @@ function IgnoreDialog({ onClose }: { onClose: () => void }) {
         <textarea className="field mono" rows={11} spellCheck={false} value={text ?? ''} onChange={(e) => setText(e.target.value)} style={{ fontSize: 12 }} />
       </div>
       <div className="faint">Files that are already committed stay tracked even if they match a rule, so nothing in your history changes. Rules apply to new files.</div>
+    </Modal>
+  );
+}
+
+// ---- remove repository ---------------------------------------------------------------------------
+
+function RemoveRepo({ onClose }: { onClose: () => void }) {
+  const s = useStore();
+  const repo = s.repos.find((r) => r.id === s.repoId)!;
+  const [history, setHistory] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <Modal title={`Remove “${repo.name}”?`} onClose={onClose} footer={
+      <>
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn danger" disabled={busy} onClick={async () => {
+          setBusy(true);
+          try {
+            await window.vd.removeRepo(repo.id, { deleteHistory: history });
+            await s.reloadRepos();
+            await s.selectRepo(useStore.getState().repos[0]?.id ?? null);
+            s.toast({ kind: 'ok', text: `Removed ${repo.name}` });
+            onClose();
+          } catch (e: any) { s.toast({ kind: 'error', text: e.message }); setBusy(false); }
+        }}>{busy && <span className="spinner" />}Remove repository</button>
+      </>
+    }>
+      <p className="muted" style={{ margin: 0, lineHeight: 1.55 }}>
+        This removes the repository from Version Driver on this computer. <b>Your project files are never deleted</b>, and
+        {repo.remote?.kind === 'drive' ? ' the copy in your Google Drive stays where it is.' : ' any remote copy stays where it is.'}
+      </p>
+      <label className="row" style={{ alignItems: 'flex-start', cursor: 'pointer' }}>
+        <input type="checkbox" className="check" style={{ marginTop: 2 }} checked={history} onChange={(e) => setHistory(e.target.checked)} />
+        <span>
+          Also delete the version history stored in this folder
+          <span className="faint" style={{ display: 'block', fontSize: 12, marginTop: 2 }}>
+            Removes the hidden <span className="mono">.vdriver</span> folder in <span className="mono">{repo.dir}</span>. Past versions can't be recovered from this computer afterwards.
+          </span>
+        </span>
+      </label>
     </Modal>
   );
 }

@@ -165,7 +165,8 @@ export interface VdApi {
   pickFolder(): Promise<string | null>;
   createRepo(a: { dir: string; name: string; level?: 'fast' | 'balanced' | 'max'; ignore?: string[] }): Promise<RepoSummary>;
   addExisting(dir: string): Promise<RepoSummary>;
-  removeRepo(id: string): Promise<void>;
+  /** Forget a repository. Project files are never deleted; deleteHistory also removes the .vdriver folder. */
+  removeRepo(id: string, opts?: { deleteHistory?: boolean }): Promise<void>;
   setRemoteFolder(id: string, path: string): Promise<RepoSummary>;
   publishToDrive(id: string): Promise<RepoSummary>;
   listDriveRepos(): Promise<{ folderId: string; name: string }[]>;

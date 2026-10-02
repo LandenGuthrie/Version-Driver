@@ -42,7 +42,8 @@ function createWindow() {
     title: 'Version Driver',
     icon: join(__dirname, '../../build/icon.png'),
     titleBarStyle: 'hidden',
-    ...(mac ? { trafficLightPosition: { x: 16, y: 14 } } : { titleBarOverlay: { color: '#0f0f10', symbolColor: '#8b8b93', height: 44 } }),
+    // transparent overlay: just the minimize/maximize/close glyphs float over the app, with no box behind them
+    ...(mac ? { trafficLightPosition: { x: 16, y: 14 } } : { titleBarOverlay: { color: '#00000000', symbolColor: '#8b8b93', height: 44 } }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -96,10 +97,10 @@ function registerIpc() {
   const handlers: Record<string, (...a: any[]) => unknown> = {
     googleConfigured: () => m.googleConfigured(),
     installUpdate: () => autoUpdater.quitAndInstall(),
-    setTitleBar: (color: string, symbolColor: string) => {
+    setTitleBar: (_color: string, symbolColor: string) => {
       if (process.platform !== 'darwin') {
         try {
-          win?.setTitleBarOverlay({ color, symbolColor, height: 44 });
+          win?.setTitleBarOverlay({ color: '#00000000', symbolColor, height: 44 });
         } catch {
           /* overlay not supported on this window */
         }
@@ -118,7 +119,7 @@ function registerIpc() {
     },
     createRepo: (a) => m.createRepo(a),
     addExisting: (d: string) => m.addExisting(d),
-    removeRepo: (id: string) => m.removeRepo(id),
+    removeRepo: (id: string, o?: { deleteHistory?: boolean }) => m.removeRepo(id, o),
     setRemoteFolder: (id: string, p: string) => m.setRemoteFolder(id, p),
     publishToDrive: (id: string) => m.publishToDrive(id),
     listDriveRepos: () => m.listDriveRepos(),

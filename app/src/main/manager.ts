@@ -3,7 +3,7 @@
 import { app, BrowserWindow, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { join, basename } from 'node:path';
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { watch as fsWatch, type FSWatcher } from 'node:fs';
 import {
   Repository, RemoteClient, RemoteWatcher, FsStorage, cloneRepo, publishRepo, requestJoin, listMembers,
@@ -200,12 +200,18 @@ export class Manager {
     return this.register(repo);
   }
 
-  async removeRepo(id: string) {
+  async removeRepo(id: string, opts: { deleteHistory?: boolean } = {}) {
+    const dir = this.registry.find((r) => r.id === id)?.dir;
     await this.deactivate(id);
     this.ctxs.delete(id);
     this.registry = this.registry.filter((r) => r.id !== id);
     await this.saveRegistry();
     deleteSecret(`repokey:${id}`);
+    // Only ever delete the .vdriver folder itself, and only if it really is one. Project files stay untouched.
+    if (opts.deleteHistory && dir) {
+      const vd = join(dir, '.vdriver');
+      if ((await stat(join(vd, 'config.json')).catch(() => null))?.isFile()) await rm(vd, { recursive: true, force: true });
+    }
   }
 
   // ---- remotes ---------------------------------------------------------------

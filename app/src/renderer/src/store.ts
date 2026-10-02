@@ -11,6 +11,7 @@ export type Dialog =
   | { t: 'newBranch' }
   | { t: 'settings' }
   | { t: 'ignore' }
+  | { t: 'removeRepo' }
   | { t: 'conflict'; op: 'merge' | 'revert'; ref: string; paths: string[] }
   | { t: 'confirm'; title: string; body: string; confirmLabel: string; danger?: boolean; run: () => Promise<void> };
 
